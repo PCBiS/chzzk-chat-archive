@@ -4,8 +4,10 @@ import { CrawlerManager } from "./crawler";
 import { createServer } from "./server";
 import { ensureSessionSecret } from "./admin";
 import { OperationalLogger } from "./logs";
+import { ChatIndex } from "./chat-index";
 
 let activeLogger: OperationalLogger | null = null;
+let activeChatIndex: ChatIndex | null = null;
 
 function integerEnv(name: string, fallback: number) {
   const parsed = Number.parseInt(process.env[name] || "", 10);
@@ -25,7 +27,12 @@ async function main() {
   await logger.start();
   activeLogger = logger;
 
-  const crawler = new CrawlerManager(configDir, dataDir, logger);
+  const chatIndex = await ChatIndex.open(dataDir);
+  activeChatIndex = chatIndex;
+  await chatIndex.syncAll();
+  await logger.log("system", "info", "chat_index_ready", "SQLite 채팅 검색 인덱스를 준비했습니다.");
+
+  const crawler = new CrawlerManager(configDir, dataDir, logger, chatIndex);
   await crawler.start();
 
   const app = createServer({
@@ -36,6 +43,7 @@ async function main() {
     sessionSecret,
     trustProxy: process.env.TRUST_PROXY === "true",
     crawler,
+    chatIndex,
     logger
   });
   const server = app.listen(port, "0.0.0.0", () => {
@@ -46,6 +54,8 @@ async function main() {
     server.close();
     await logger.log("system", "info", "shutdown_started", "애플리케이션 종료를 시작했습니다.");
     await crawler.stop();
+    chatIndex.close();
+    activeChatIndex = null;
     await logger.stop();
     process.exit(0);
   };
@@ -54,6 +64,8 @@ async function main() {
 }
 
 main().catch(async (error) => {
+  activeChatIndex?.close();
+  activeChatIndex = null;
   if (activeLogger) {
     await activeLogger.log("system", "error", "startup_failed", "애플리케이션 실행 중 치명적인 오류가 발생했습니다.", {
       error: error instanceof Error ? error.message : String(error)

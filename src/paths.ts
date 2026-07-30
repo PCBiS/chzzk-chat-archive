@@ -15,6 +15,14 @@ export function normalizeRelativePath(input: unknown): string {
   return normalized;
 }
 
+export function assertPublicArchivePath(input: unknown): string {
+  const relative = normalizeRelativePath(input);
+  if (relative.split("/").some((segment) => segment.startsWith("."))) {
+    throw new Error("내부 저장 경로에는 접근할 수 없습니다.");
+  }
+  return relative;
+}
+
 export function resolveInside(root: string, input: unknown): string {
   const relative = normalizeRelativePath(input);
   const resolvedRoot = path.resolve(root);
