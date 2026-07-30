@@ -33,6 +33,14 @@ interface ServerOptions {
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
+export function sessionCookie(secure: boolean) {
+  return {
+    httpOnly: true,
+    sameSite: "strict" as const,
+    secure
+  };
+}
+
 function safeEqual(a: string, b: string) {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
@@ -60,12 +68,7 @@ export function createServer(options: ServerOptions) {
       secret: options.sessionSecret,
       resave: false,
       saveUninitialized: false,
-      cookie: {
-        httpOnly: true,
-        sameSite: "strict",
-        secure: options.trustProxy,
-        maxAge: 12 * 60 * 60 * 1000
-      }
+      cookie: sessionCookie(options.trustProxy)
     })
   );
 
