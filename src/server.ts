@@ -3,9 +3,10 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { rmdir, stat, unlink } from "node:fs/promises";
 import express, { type NextFunction, type Request, type Response } from "express";
 import session from "express-session";
-import { analyzeArchive, listArchive } from "./archive";
-import { assertArchiveFile, normalizeRelativePath, resolveExistingInside } from "./paths";
+import { listArchive } from "./archive";
+import { assertArchiveFile, assertPublicArchivePath, normalizeRelativePath, resolveExistingInside } from "./paths";
 import type { CrawlerManager } from "./crawler";
+import type { ChatIndex } from "./chat-index";
 import { readPublicSettings, updateSettings } from "./settings";
 import { adminExists, createAdmin, verifyAdmin } from "./admin";
 import { analyzeLog, assertLogFile, listLogs, type OperationalLogger } from "./logs";
@@ -26,6 +27,7 @@ interface ServerOptions {
   sessionSecret: string;
   trustProxy: boolean;
   crawler: CrawlerManager;
+  chatIndex: ChatIndex;
   logger: OperationalLogger;
 }
 
@@ -196,7 +198,8 @@ export function createServer(options: ServerOptions) {
   });
   app.get("/api/files/download", requireAuth, async (request, response, next) => {
     try {
-      const filePath = await resolveExistingInside(options.dataDir, request.query.path);
+      const relative = assertPublicArchivePath(request.query.path);
+      const filePath = await resolveExistingInside(options.dataDir, relative);
       assertArchiveFile(filePath);
       if (!(await stat(filePath)).isFile()) throw new Error("파일이 아닙니다.");
       void options.logger.log("files", "info", "archive_downloaded", "채팅 아카이브를 다운로드했습니다.", {
@@ -211,7 +214,7 @@ export function createServer(options: ServerOptions) {
 
   app.delete("/api/files", requireAuth, requireCsrf, async (request, response, next) => {
     try {
-      const relative = normalizeRelativePath(request.query.path);
+      const relative = assertPublicArchivePath(request.query.path);
       if (!relative) throw new Error("채팅 저장소 루트는 삭제할 수 없습니다.");
       const target = await resolveExistingInside(options.dataDir, relative);
       const info = await stat(target);
@@ -229,6 +232,7 @@ export function createServer(options: ServerOptions) {
         const active = options.crawler.snapshots().some((worker) => worker.file === relative);
         if (active) throw new Error("현재 수집 중인 채팅 파일은 삭제할 수 없습니다.");
         await unlink(target);
+        options.chatIndex.removeFile(relative);
       }
       void options.logger.log("files", "warn", "archive_deleted", "채팅 아카이브 항목을 삭제했습니다.", {
         username: request.session.username,
@@ -246,7 +250,7 @@ export function createServer(options: ServerOptions) {
       const offset = Math.max(0, Number.parseInt(String(request.query.offset || "0"), 10) || 0);
       const limit = Math.min(500, Math.max(1, Number.parseInt(String(request.query.limit || "100"), 10) || 100));
       response.json(
-        await analyzeArchive(options.dataDir, request.query.path, {
+        await options.chatIndex.analyze(assertPublicArchivePath(request.query.path), {
           user: typeof request.query.user === "string" ? request.query.user : undefined,
           query: typeof request.query.q === "string" ? request.query.q : undefined,
           offset,

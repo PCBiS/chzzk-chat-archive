@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import readline from "node:readline";
 import type { ArchiveRecord } from "./types";
-import { assertArchiveFile, normalizeRelativePath, resolveExistingInside, resolveInside } from "./paths";
+import { assertArchiveFile, assertPublicArchivePath, resolveExistingInside, resolveInside } from "./paths";
 
 export async function appendRecord(filePath: string, record: ArchiveRecord): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -15,13 +15,13 @@ export async function appendRecord(filePath: string, record: ArchiveRecord): Pro
 }
 
 export async function listArchive(root: string, relativeInput: unknown) {
-  const relative = normalizeRelativePath(relativeInput);
+  const relative = assertPublicArchivePath(relativeInput);
   const directory = await resolveExistingInside(root, relative);
   const info = await stat(directory);
   if (!info.isDirectory()) throw new Error("폴더만 탐색할 수 있습니다.");
   const items = await Promise.all(
     (await readdir(directory, { withFileTypes: true }))
-      .filter((entry) => !entry.isSymbolicLink())
+      .filter((entry) => !entry.isSymbolicLink() && !entry.name.startsWith("."))
       .map(async (entry) => {
         const absolute = resolveInside(directory, entry.name);
         const entryStat = await stat(absolute);

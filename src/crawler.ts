@@ -4,6 +4,7 @@ import { appendRecord } from "./archive";
 import { safeSegment } from "./paths";
 import { readRawSettings } from "./settings";
 import type { OperationalLogger } from "./logs";
+import type { ChatIndex } from "./chat-index";
 import type { ArchiveKind, ArchiveRecord, StreamerConfig, WorkerSnapshot } from "./types";
 
 interface Credentials {
@@ -105,6 +106,7 @@ class StreamerWorker {
     private pollIntervalMs: number,
     private offChatLimitMs: number | null,
     private logger: OperationalLogger,
+    private chatIndex: ChatIndex,
     lastScanStartedAt = 0
   ) {
     this.lastScanStartedAt = lastScanStartedAt;
@@ -360,6 +362,16 @@ class StreamerWorker {
     };
     try {
       await appendRecord(this.currentFile, record);
+      try {
+        this.chatIndex.addRecord(this.snapshot.file || "", record);
+      } catch (error) {
+        void this.logger.log("crawler", "error", "chat_index_write_failed", "채팅 검색 인덱스 기록에 실패했습니다.", {
+          channelId: this.config.channelId,
+          streamer: this.config.name,
+          file: this.snapshot.file,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     } catch (error) {
       this.snapshot.lastError = error instanceof Error ? error.message : String(error);
       void this.logger.log("crawler", "error", "archive_write_failed", "채팅 아카이브 기록에 실패했습니다.", {
@@ -400,7 +412,8 @@ export class CrawlerManager {
   constructor(
     private configDir: string,
     private dataDir: string,
-    private logger: OperationalLogger
+    private logger: OperationalLogger,
+    private chatIndex: ChatIndex
   ) {}
 
   async start() {
@@ -419,6 +432,7 @@ export class CrawlerManager {
           pollIntervalMs,
           offChatLimitMs,
           this.logger,
+          this.chatIndex,
           this.scanHistory.get(streamer.channelId) || 0
         )
     );
