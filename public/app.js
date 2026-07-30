@@ -395,21 +395,22 @@ async function analyze(file = state.selectedFile) {
 $("#setup-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("#setup-error").textContent = "";
-  const form = new FormData(event.currentTarget);
-  const username = String(form.get("username") || "").trim();
-  const password = String(form.get("password") || "");
-  if (password !== String(form.get("passwordConfirm") || "")) {
+  const formElement = event.currentTarget;
+  const formData = new FormData(formElement);
+  const username = String(formData.get("username") || "").trim();
+  const password = String(formData.get("password") || "");
+  if (password !== String(formData.get("passwordConfirm") || "")) {
     $("#setup-error").textContent = "비밀번호 확인 값이 일치하지 않습니다.";
     return;
   }
-  const submit = event.currentTarget.querySelector('button[type="submit"]');
+  const submit = formElement.querySelector('button[type="submit"]');
   submit.disabled = true;
   try {
     const result = await api("/api/auth/setup", {
       method: "POST",
       body: JSON.stringify({ username, password })
     });
-    event.currentTarget.reset();
+    formElement.reset();
     showLogin(result.username, "관리자 계정이 생성되었습니다. 새 계정으로 로그인하세요.");
     $("#login-form").elements.password.focus();
   } catch (error) {
@@ -423,13 +424,14 @@ $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("#login-error").textContent = "";
   $("#login-message").textContent = "";
-  const form = new FormData(event.currentTarget);
+  const formElement = event.currentTarget;
+  const formData = new FormData(formElement);
   try {
     showApp(await api("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username: form.get("username"), password: form.get("password") })
+      body: JSON.stringify({ username: formData.get("username"), password: formData.get("password") })
     }));
-    event.currentTarget.reset();
+    formElement.reset();
   } catch (error) {
     if (error.payload?.setupRequired) {
       showSetup();
