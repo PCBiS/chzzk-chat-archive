@@ -1,0 +1,10 @@
+node_modules/
+dist/
+test-dist/
+.env
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+config/credentials.json
+npm-debug.log*

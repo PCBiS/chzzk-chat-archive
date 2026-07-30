@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="CHZZK 방송 채팅을 수집하고 탐색하는 개인용 아카이브" />
+    <title>CHZZK Chat Archive</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <section id="setup-view" class="login-shell hidden">
+        <div class="brand-block">
+          <p class="eyebrow">FIRST RUN SETUP</p>
+          <h1>첫 관리자를<br />설정합니다.</h1>
+          <p class="lede">이 계정은 채팅 기록과 CHZZK 인증 정보를 관리합니다. 처음 한 번만 생성할 수 있습니다.</p>
+          <div class="signal-line"><span></span> Credentials stay inside your config volume</div>
+        </div>
+        <form id="setup-form" class="login-card">
+          <div>
+            <p class="eyebrow">ADMIN ACCOUNT</p>
+            <h2>관리자 계정 만들기</h2>
+            <p>앞으로 로그인할 아이디와 안전한 비밀번호를 설정하세요.</p>
+          </div>
+          <label>관리자 아이디
+            <input name="username" autocomplete="username" minlength="3" maxlength="64" pattern="[A-Za-z0-9_.-]+" placeholder="영문·숫자 3자 이상" required />
+          </label>
+          <label>비밀번호
+            <input name="password" type="password" autocomplete="new-password" minlength="6" maxlength="256" placeholder="6자 이상" required />
+          </label>
+          <label>비밀번호 확인
+            <input name="passwordConfirm" type="password" autocomplete="new-password" minlength="6" maxlength="256" placeholder="비밀번호를 다시 입력" required />
+          </label>
+          <button type="submit">관리자 계정 생성 <span>→</span></button>
+          <p id="setup-error" class="error" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="login-view" class="login-shell hidden">
+        <div class="brand-block">
+          <p class="eyebrow">CHZZK CHAT ARCHIVE</p>
+          <h1>방송의 흐름을<br />채팅으로 보관하세요.</h1>
+          <p class="lede">방송별 채팅 기록, 방종 후 대화, 참여자 현황을 한곳에서 탐색합니다.</p>
+          <div class="signal-line"><span></span> Private archive console</div>
+        </div>
+        <form id="login-form" class="login-card">
+          <div>
+            <p class="eyebrow">SECURE ACCESS</p>
+            <h2>관리자 로그인</h2>
+            <p>아카이브에 접근하려면 관리자 계정으로 로그인하세요.</p>
+          </div>
+          <label>아이디<input name="username" autocomplete="username" required /></label>
+          <label>비밀번호<input name="password" type="password" autocomplete="current-password" required /></label>
+          <button type="submit">아카이브 열기 <span>→</span></button>
+          <p id="login-message" class="success-message" role="status"></p>
+          <p id="login-error" class="error" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="app-view" class="app-shell hidden">
+        <header>
+          <div>
+            <p class="eyebrow">CHZZK CHAT ARCHIVE</p>
+            <h1>채팅 아카이브</h1>
+          </div>
+          <div class="header-actions">
+            <span id="username" class="user-badge"></span>
+            <button id="logout-button" class="ghost-button">로그아웃</button>
+          </div>
+        </header>
+
+        <section id="status-strip" class="status-strip" aria-label="크롤러 상태"></section>
+
+        <nav class="tabs" aria-label="주요 화면">
+          <button class="tab active" data-tab="explorer">파일 탐색기</button>
+          <button class="tab" data-tab="analysis">채팅 분석</button>
+          <button class="tab" data-tab="logs">운영 로그</button>
+          <button class="tab" data-tab="settings">설정</button>
+        </nav>
+
+        <section id="explorer-panel" class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">ARCHIVE STORAGE</p>
+              <h2>파일 탐색기</h2>
+              <div id="breadcrumbs" class="breadcrumbs"></div>
+            </div>
+            <span class="security-note">다운로드 및 삭제 전용</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>이름</th><th>종류</th><th>크기</th><th>수정 시각</th><th></th></tr></thead>
+              <tbody id="file-list"></tbody>
+            </table>
+            <div id="empty-files" class="empty hidden">이 폴더에는 아직 채팅 파일이 없습니다.</div>
+          </div>
+        </section>
+
+        <section id="analysis-panel" class="panel hidden">
+          <div class="panel-heading analysis-heading">
+            <div>
+              <p class="eyebrow">CHAT INTELLIGENCE</p>
+              <h2>채팅 분석</h2>
+              <p id="selected-file" class="muted">탐색기에서 분석할 JSONL 파일을 선택하세요.</p>
+            </div>
+            <button id="back-to-files" class="ghost-button">파일 선택</button>
+          </div>
+          <form id="filter-form" class="filters">
+            <label>사용자 필터<input id="user-filter" placeholder="닉네임 또는 사용자 ID" /></label>
+            <label>메시지 검색<input id="message-filter" placeholder="메시지에 포함된 단어" /></label>
+            <button class="primary-button" type="submit">필터 적용</button>
+          </form>
+          <div class="metrics">
+            <article><span>전체 메시지</span><strong id="metric-total">—</strong></article>
+            <article><span>필터 결과</span><strong id="metric-filtered">—</strong></article>
+            <article><span>고유 참여자</span><strong id="metric-users">—</strong></article>
+          </div>
+          <div class="analysis-grid">
+            <section class="subpanel">
+              <div class="subpanel-title"><h3>참여자 현황</h3><span>메시지 수</span></div>
+              <div id="user-list" class="user-list"></div>
+            </section>
+            <section class="subpanel">
+              <div class="subpanel-title"><h3>채팅 내역</h3><span id="message-count"></span></div>
+              <div id="message-list" class="message-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="logs-panel" class="panel hidden">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">OPERATION LOGS</p>
+              <h2>로그 탐색기</h2>
+              <div id="log-breadcrumbs" class="breadcrumbs"></div>
+            </div>
+            <span class="security-note">일별 저장 · 7일 초과 GZIP 압축</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>이름</th><th>종류</th><th>크기</th><th>수정 시각</th><th></th></tr></thead>
+              <tbody id="log-file-list"></tbody>
+            </table>
+            <div id="empty-logs" class="empty hidden">이 폴더에는 아직 로그가 없습니다.</div>
+          </div>
+
+          <section id="log-analysis" class="log-analysis hidden">
+            <div class="subpanel-title">
+              <div><h3>로그 분석</h3><span id="selected-log-file"></span></div>
+            </div>
+            <form id="log-filter-form" class="filters log-filters">
+              <label>레벨
+                <select id="log-level-filter">
+                  <option value="">전체</option>
+                  <option value="info">Info</option>
+                  <option value="warn">Warn</option>
+                  <option value="error">Error</option>
+                </select>
+              </label>
+              <label>내용 검색<input id="log-query-filter" placeholder="이벤트, 메시지 또는 상세 정보" /></label>
+              <button class="primary-button" type="submit">필터 적용</button>
+            </form>
+            <div class="metrics">
+              <article><span>전체 기록</span><strong id="log-metric-total">—</strong></article>
+              <article><span>필터 결과</span><strong id="log-metric-filtered">—</strong></article>
+              <article><span>오류</span><strong id="log-metric-errors">—</strong></article>
+            </div>
+            <div class="analysis-grid">
+              <section class="subpanel">
+                <div class="subpanel-title"><h3>이벤트 현황</h3><span>발생 수</span></div>
+                <div id="log-event-list" class="user-list"></div>
+              </section>
+              <section class="subpanel">
+                <div class="subpanel-title"><h3>로그 기록</h3><span>최대 200개</span></div>
+                <div id="log-record-list" class="message-list"></div>
+              </section>
+            </div>
+          </section>
+        </section>
+
+        <section id="settings-panel" class="panel hidden">
+          <div class="panel-heading settings-heading">
+            <div>
+              <p class="eyebrow">CRAWLER CONTROL</p>
+              <h2>크롤러 설정</h2>
+              <p class="muted">스트리머와 인증 쿠키를 저장하면 크롤러가 즉시 새 설정으로 다시 시작됩니다.</p>
+            </div>
+            <span class="security-note">쿠키 원문은 다시 표시되지 않습니다</span>
+          </div>
+
+          <form id="settings-form" class="settings-form">
+            <section class="settings-section crawler-options-section">
+              <div class="settings-section-heading">
+                <div>
+                  <p class="eyebrow">GLOBAL SCHEDULER</p>
+                  <h3>전역 수집 설정</h3>
+                </div>
+                <span class="setting-scope">모든 스트리머에 적용</span>
+              </div>
+              <div class="crawler-options-grid">
+                <label>방송 상태 확인 주기
+                  <span class="input-with-unit">
+                    <input id="status-poll-seconds" type="number" min="1" max="86400" step="1" value="60" required />
+                    <span>초</span>
+                  </span>
+                  <small>각 스트리머를 다시 확인하기까지 최소 시간 · 권장 60초 이상</small>
+                </label>
+                <label>스트리머 간 스캔 간격
+                  <span class="input-with-unit">
+                    <input id="scan-stagger-seconds" type="number" min="1" max="3600" step="1" value="20" required />
+                    <span>초</span>
+                  </span>
+                  <small>여러 스트리머의 요청을 순차 분산하는 간격 · 권장 20초 이상</small>
+                </label>
+                <label>방종 후 수집 제한
+                  <span class="input-with-unit">
+                    <input id="off-chat-limit-minutes" type="number" min="1" max="525600" step="1" value="360" required disabled />
+                    <span>분</span>
+                  </span>
+                  <small>제한을 사용할 때 종료 감지 후 채팅을 유지할 시간 · 정수만 입력</small>
+                </label>
+              </div>
+              <label class="check-label crawler-unlimited-control">
+                <input id="off-chat-unlimited" type="checkbox" checked />
+                방종 후 채팅을 시간 제한 없이 계속 수집
+              </label>
+              <p id="crawler-rate-warning" class="rate-warning hidden" role="alert"></p>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section-heading">
+                <div>
+                  <p class="eyebrow">STREAMERS</p>
+                  <h3>수집 대상</h3>
+                </div>
+                <div class="streamer-toolbar">
+                  <button id="enter-bulk-delete" class="danger-button" type="button">일괄 삭제</button>
+                  <div id="bulk-delete-controls" class="bulk-delete-controls hidden">
+                    <label class="select-all-label">
+                      <input id="select-all-streamers" type="checkbox" />
+                      전체 선택
+                    </label>
+                    <button id="bulk-delete-streamers" class="danger-button" type="button" disabled>선택 삭제</button>
+                    <button id="cancel-bulk-delete" class="ghost-button" type="button">취소</button>
+                  </div>
+                  <button id="add-streamer" class="ghost-button" type="button">＋ 스트리머 추가</button>
+                </div>
+              </div>
+              <div id="streamer-settings" class="streamer-settings"></div>
+              <div id="empty-streamers" class="settings-empty hidden">
+                등록된 스트리머가 없습니다. 스트리머를 추가해 주세요.
+              </div>
+            </section>
+
+            <section class="settings-section credentials-section">
+              <div class="settings-section-heading">
+                <div>
+                  <p class="eyebrow">CHZZK AUTHENTICATION</p>
+                  <h3>네이버 로그인 쿠키</h3>
+                </div>
+                <div class="credential-heading-actions">
+                  <div id="credential-status" class="credential-status"></div>
+                  <button id="edit-credentials" class="ghost-button hidden" type="button">편집하기</button>
+                  <button id="cancel-edit-credentials" class="ghost-button hidden" type="button">편집 취소</button>
+                </div>
+              </div>
+              <p id="credential-help" class="settings-help">
+                새 값을 입력한 항목만 변경됩니다. 빈칸은 기존 값을 유지하며, 하단의 설정 저장 시 CHZZK 로그인 여부를 먼저 검증합니다.
+              </p>
+              <div class="credential-grid">
+                <label>NID_AUT
+                  <input id="nid-aut" type="text" autocomplete="off" spellcheck="false" placeholder="NID_AUT 입력" readonly />
+                </label>
+                <label>NID_SES
+                  <input id="nid-ses" type="text" autocomplete="off" spellcheck="false" placeholder="NID_SES 입력" readonly />
+                </label>
+              </div>
+              <label id="clear-credentials-control" class="check-label">
+                <input id="clear-credentials" type="checkbox" />
+                저장된 쿠키 값을 모두 삭제
+              </label>
+            </section>
+
+            <div class="settings-actions">
+              <p id="settings-message" class="muted" role="status"></p>
+              <button id="save-settings" class="primary-button" type="submit">설정 저장 및 적용</button>
+            </div>
+          </form>
+        </section>
+        <p id="toast" class="toast hidden" role="status"></p>
+      </section>
+    </main>
+  </body>
+</html>

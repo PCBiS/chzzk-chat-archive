@@ -1,0 +1,28 @@
+services:
+  chzzk-chat-archive:
+    image: ghcr.io/pcbis/chzzk-chat-archive:latest
+    pull_policy: always
+    container_name: chzzk-chat-archive
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      DATA_DIR: /data
+      CONFIG_DIR: /config
+      LOG_DIR: /logs
+    volumes:
+      - chzzk-data:/data
+      - chzzk-config:/config
+      - chzzk-logs:/logs
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+
+volumes:
+  chzzk-data:
+  chzzk-config:
+  chzzk-logs:
