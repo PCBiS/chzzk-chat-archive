@@ -251,7 +251,10 @@ export function createServer(options: ServerOptions) {
   app.get("/api/analysis", requireAuth, async (request, response, next) => {
     try {
       const offset = Math.max(0, Number.parseInt(String(request.query.offset || "0"), 10) || 0);
-      const limit = Math.min(500, Math.max(1, Number.parseInt(String(request.query.limit || "100"), 10) || 100));
+      const requestedLimit = String(request.query.limit || "200");
+      const limit = requestedLimit === "all"
+        ? null
+        : Math.min(1000, Math.max(1, Number.parseInt(requestedLimit, 10) || 200));
       response.json(
         await options.chatIndex.analyze(assertPublicArchivePath(request.query.path), {
           user: typeof request.query.user === "string" ? request.query.user : undefined,

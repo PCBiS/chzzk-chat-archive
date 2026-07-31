@@ -59,6 +59,13 @@ test("SQLite index incrementally analyzes JSONL archives", async () => {
     assert.equal(second.totalMessages, 4);
     assert.equal(second.filteredMessages, 1);
     assert.equal(second.messages[0]?.message, "증분");
+
+    const all = await index.analyze(relative, {
+      query: "",
+      offset: 0,
+      limit: null
+    });
+    assert.equal(all.messages.length, 4);
   } finally {
     index.close();
   }
