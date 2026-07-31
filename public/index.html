@@ -110,6 +110,14 @@
           <form id="filter-form" class="filters">
             <label>사용자 필터<input id="user-filter" placeholder="닉네임 또는 사용자 ID" /></label>
             <label>메시지 검색<input id="message-filter" placeholder="메시지에 포함된 단어" /></label>
+            <label>표시 개수
+              <select id="message-limit">
+                <option value="200" selected>200개</option>
+                <option value="500">500개</option>
+                <option value="1000">1,000개</option>
+                <option value="all">전부</option>
+              </select>
+            </label>
             <button class="primary-button" type="submit">필터 적용</button>
           </form>
           <div class="metrics">

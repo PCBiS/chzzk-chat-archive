@@ -149,7 +149,7 @@ export class ChatIndex {
 
   async analyze(
     relativeInput: unknown,
-    options: { user?: string; query?: string; offset: number; limit: number }
+    options: { user?: string; query?: string; offset: number; limit: number | null }
   ) {
     const relative = normalizeRelativePath(relativeInput);
     await this.syncFile(relative);
@@ -194,13 +194,20 @@ export class ChatIndex {
       (this.database.prepare(`SELECT COUNT(*) AS count FROM messages WHERE ${where}`).get(...parameters) as unknown as CountRow)
         .count
     );
-    const rows = this.database.prepare(`
-      SELECT raw_json
-      FROM messages
-      WHERE ${where}
-      ORDER BY id ASC
-      LIMIT ? OFFSET ?
-    `).all(...parameters, options.limit, options.offset) as unknown as RecordRow[];
+    const rows = (options.limit === null
+      ? this.database.prepare(`
+          SELECT raw_json
+          FROM messages
+          WHERE ${where}
+          ORDER BY id ASC
+        `).all(...parameters)
+      : this.database.prepare(`
+          SELECT raw_json
+          FROM messages
+          WHERE ${where}
+          ORDER BY id ASC
+          LIMIT ? OFFSET ?
+        `).all(...parameters, options.limit, options.offset)) as unknown as RecordRow[];
 
     return {
       totalMessages: total,

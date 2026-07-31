@@ -366,14 +366,13 @@ async function analyze(file = state.selectedFile) {
     path: file,
     user: $("#user-filter").value,
     q: $("#message-filter").value,
-    limit: "200"
+    limit: $("#message-limit").value
   });
   try {
     const result = await api(`/api/analysis?${params}`);
     $("#metric-total").textContent = result.totalMessages.toLocaleString("ko-KR");
     $("#metric-filtered").textContent = result.filteredMessages.toLocaleString("ko-KR");
     $("#metric-users").textContent = result.uniqueUsers.toLocaleString("ko-KR");
-    $("#message-count").textContent = `최대 200개 표시`;
     $("#user-list").innerHTML = result.users.length ? result.users.map((user) => `
       <div class="user-row">
         <button data-user="${escapeHtml(user.id || user.nickname)}">
@@ -381,6 +380,7 @@ async function analyze(file = state.selectedFile) {
         </button>
         <strong>${user.count.toLocaleString("ko-KR")}</strong>
       </div>`).join("") : `<div class="empty">참여자 정보가 없습니다.</div>`;
+    $("#message-count").textContent = `${result.messages.length.toLocaleString("ko-KR")} / ${result.filteredMessages.toLocaleString("ko-KR")}개 표시`;
     $("#message-list").innerHTML = result.messages.length ? result.messages.map((record) => `
       <article class="message">
         <div class="message-meta"><strong>${escapeHtml(record.user.nickname)}</strong><span>${new Date(record.messageAt).toLocaleString("ko-KR")}</span></div>
