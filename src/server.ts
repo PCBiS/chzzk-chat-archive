@@ -1,6 +1,10 @@
 import path from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { rmdir, stat, unlink } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createGunzip } from "node:zlib";
+import { pipeline } from "node:stream/promises";
+import type { ArchiveStore } from "./archive-store";
 import express, { type NextFunction, type Request, type Response } from "express";
 import session from "express-session";
 import { listArchive } from "./archive";
@@ -29,6 +33,7 @@ interface ServerOptions {
   crawler: CrawlerManager;
   chatIndex: ChatIndex;
   logger: OperationalLogger;
+  archiveStore?: ArchiveStore;
 }
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -194,7 +199,7 @@ export function createServer(options: ServerOptions) {
   });
   app.get("/api/files", requireAuth, async (request, response, next) => {
     try {
-      response.json(await listArchive(options.dataDir, request.query.path || ""));
+      response.json(await listArchive(options.dataDir, request.query.path || "", options.archiveStore));
     } catch (error) {
       next(error);
     }
@@ -202,6 +207,23 @@ export function createServer(options: ServerOptions) {
   app.get("/api/files/download", requireAuth, async (request, response, next) => {
     try {
       const relative = assertPublicArchivePath(request.query.path);
+      assertArchiveFile(relative);
+      if (options.archiveStore && relative.endsWith(".jsonl")) {
+        await options.archiveStore.withFile(relative, async () => {
+          const resolved = await options.archiveStore!.resolve(relative);
+          const format = request.query.format || "jsonl";
+          if (!["jsonl", "raw", "gzip"].includes(String(format))) throw new Error("다운로드 형식이 올바르지 않습니다.");
+          if (format === "gzip" && resolved.encoding !== "gzip") throw new Error("압축 파일이 아닙니다.");
+          const encoded = format === "gzip";
+          response.attachment(path.basename(relative) + (encoded ? ".gz" : ""));
+          response.type(encoded ? "application/gzip" : "application/x-ndjson");
+          const source = createReadStream(resolved.physicalPath);
+          // pipeline destroys the source and decoder on client disconnect.
+          if (resolved.encoding === "gzip" && !encoded) await pipeline(source, createGunzip(), response);
+          else await pipeline(source, response);
+        });
+        return;
+      }
       const filePath = await resolveExistingInside(options.dataDir, relative);
       assertArchiveFile(filePath);
       if (!(await stat(filePath)).isFile()) throw new Error("파일이 아닙니다.");
@@ -219,6 +241,14 @@ export function createServer(options: ServerOptions) {
     try {
       const relative = assertPublicArchivePath(request.query.path);
       if (!relative) throw new Error("채팅 저장소 루트는 삭제할 수 없습니다.");
+      if (options.archiveStore && relative.endsWith(".jsonl")) {
+        const active = options.crawler.snapshots().some(worker => worker.file === relative);
+        if (active) throw new Error("현재 수집 중인 채팅 파일은 삭제할 수 없습니다.");
+        await options.archiveStore.remove(relative, () => options.crawler.snapshots().some(worker => worker.file === relative));
+        options.chatIndex.removeFile(relative);
+        response.status(204).end();
+        return;
+      }
       const target = await resolveExistingInside(options.dataDir, relative);
       const info = await stat(target);
       if (info.isDirectory()) {
@@ -268,6 +298,29 @@ export function createServer(options: ServerOptions) {
     }
   });
 
+  const rebuilds = new Map<string, Promise<void>>();
+  app.post("/api/analysis/rebuild", requireAuth, requireCsrf, async (request, response, next) => {
+    try {
+      const relative = assertPublicArchivePath(request.body?.path);
+      let operation = rebuilds.get(relative);
+      if (!operation) {
+        operation = options.chatIndex.syncFile(relative, true);
+        rebuilds.set(relative, operation);
+      }
+      try { await operation; }
+      finally { if (rebuilds.get(relative) === operation) rebuilds.delete(relative); }
+      response.json({ rebuilt: true });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/files/revalidate", requireAuth, requireCsrf, async (request, response, next) => {
+    try {
+      if (!options.archiveStore) throw new Error("압축 자료 관리가 활성화되지 않았습니다.");
+      await options.archiveStore.revalidate(assertPublicArchivePath(request.body?.path));
+      response.json({ verified: true });
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/logs", requireAuth, async (request, response, next) => {
     try {
       response.json(await listLogs(options.logsDir, request.query.path || ""));
@@ -307,6 +360,7 @@ export function createServer(options: ServerOptions) {
   app.use(express.static(options.publicDir, { index: "index.html", fallthrough: true }));
   app.get("*", (_, response) => response.sendFile(path.join(options.publicDir, "index.html")));
   app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    if (response.headersSent) { response.destroy(error instanceof Error ? error : undefined); return; }
     const message = error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";
     const status = message.includes("ENOENT") ? 404 : 400;
     void options.logger.log("system", "error", "request_failed", "웹 요청 처리에 실패했습니다.", {

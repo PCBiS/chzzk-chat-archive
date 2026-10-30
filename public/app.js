@@ -113,11 +113,11 @@ async function loadFiles(path = "") {
         <td><button class="file-button" data-open="${escapeHtml(item.path)}" data-type="${item.type}">
           ${item.type === "directory" ? "▰" : "▤"}&nbsp; ${escapeHtml(item.name)}
         </button></td>
-        <td>${item.type === "directory" ? "폴더" : "채팅 기록"}</td>
+        <td>${item.type === "directory" ? "폴더" : item.encoding === "unavailable" ? "확인 필요" : item.encoding === "gzip" ? "압축 채팅 기록" : "채팅 기록"}</td>
         <td>${item.size === null ? "—" : formatBytes(item.size)}</td>
         <td>${new Date(item.modifiedAt).toLocaleString("ko-KR")}</td>
         <td><div class="row-actions">
-          ${item.type === "file" ? `<button data-analyze="${escapeHtml(item.path)}">분석</button><a href="/api/files/download?path=${encodeURIComponent(item.path)}">다운로드</a>` : ""}
+          ${item.type === "file" ? `<button data-analyze="${escapeHtml(item.path)}">분석</button>${item.encoding === "gzip" ? `<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=gzip">압축본</a>` : ""}<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=jsonl">JSONL 다운로드</a>` : ""}
           <button class="delete-archive" data-delete="${escapeHtml(item.path)}" data-delete-type="${item.type}">삭제</button>
         </div></td>
       </tr>`).join("");
@@ -392,6 +392,18 @@ async function analyze(file = state.selectedFile) {
   }
 }
 
+$("#rebuild-analysis").addEventListener("click", async (event) => {
+  if (!state.selectedFile) { toast("먼저 분석할 파일을 선택하세요."); return; }
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    toast("검색 자료를 준비하고 있습니다.");
+    await api("/api/analysis/rebuild", { method: "POST", body: JSON.stringify({ path: state.selectedFile }) });
+    await analyze();
+  } catch (error) { toast(error.message); }
+  finally { button.disabled = false; }
+});
+
 $("#setup-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("#setup-error").textContent = "";
@@ -451,7 +463,11 @@ $("#file-list").addEventListener("click", (event) => {
   const analysis = event.target.closest("[data-analyze]");
   const deletion = event.target.closest("[data-delete]");
   if (open?.dataset.type === "directory") loadFiles(open.dataset.open);
-  if (open?.dataset.type === "file") analyze(open.dataset.open);
+  if (open?.dataset.type === "file") {
+    state.selectedFile = open.dataset.open;
+    $("#selected-file").textContent = state.selectedFile;
+    toast("파일을 선택했습니다. 내용을 보려면 분석 버튼을 누르세요.");
+  }
   if (analysis) analyze(analysis.dataset.analyze);
   if (deletion) {
     const itemPath = deletion.dataset.delete;

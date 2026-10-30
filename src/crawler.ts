@@ -1,10 +1,12 @@
 import path from "node:path";
+import { lstat } from "node:fs/promises";
 import { ChzzkClient } from "chzzk";
 import { appendRecord } from "./archive";
 import { safeSegment } from "./paths";
 import { readRawSettings } from "./settings";
 import type { OperationalLogger } from "./logs";
 import type { ChatIndex } from "./chat-index";
+import type { ArchiveStore } from "./archive-store";
 import type { ArchiveKind, ArchiveRecord, StreamerConfig, WorkerSnapshot } from "./types";
 
 interface Credentials {
@@ -83,7 +85,7 @@ export function remainingScanDelay(lastScanStartedAt: number, scanStaggerMs: num
   return Math.max(0, lastScanStartedAt + scanStaggerMs - now);
 }
 
-class StreamerWorker {
+export class StreamerWorker {
   private client: ChzzkClient;
   private chat: ChatConnection | null = null;
   private activeScan: Promise<void> | null = null;
@@ -98,6 +100,10 @@ class StreamerWorker {
   private offStartedAt = 0;
   private dedupe = new Map<string, number>();
   private snapshot: WorkerSnapshot;
+  private writeQueue: Promise<void> = Promise.resolve();
+  private sealQueue: Promise<void> = Promise.resolve();
+  private sealedConfirmation: string | null = null;
+  private activatedFiles = new Set<string>();
 
   constructor(
     private config: StreamerConfig,
@@ -107,7 +113,8 @@ class StreamerWorker {
     private offChatLimitMs: number | null,
     private logger: OperationalLogger,
     private chatIndex: ChatIndex,
-    lastScanStartedAt = 0
+    lastScanStartedAt = 0,
+    private archiveStore?: ArchiveStore
   ) {
     this.lastScanStartedAt = lastScanStartedAt;
     this.client = new ChzzkClient({
@@ -149,6 +156,7 @@ class StreamerWorker {
     this.stopped = true;
     if (this.activeScan) await this.activeScan;
     await this.disconnect();
+    await this.sealQueue;
   }
 
   getSnapshot(): WorkerSnapshot {
@@ -222,6 +230,8 @@ class StreamerWorker {
     const detail = (await this.client.live.detail(this.config.channelId)) as LiveDetail | null;
     const openedAt = detail?.openDate || new Date().toISOString();
     const sessionId = String(detail?.liveId || status.chatChannelId || Date.parse(openedAt));
+    const confirmed = typeof detail?.liveId === "number" && Number.isSafeInteger(detail.liveId) && detail.liveId > 0
+      ? String(detail.liveId) : null;
     if (this.kind !== "live" || this.sessionId !== sessionId) {
       await this.disconnect();
       this.kind = "live";
@@ -238,6 +248,31 @@ class StreamerWorker {
       await this.connect();
     } else if (!this.chat?.connected) {
       await this.connect();
+    }
+    // Connect first: checking legacy archives must never delay live collection.
+    // An official ID without a valid opening time is insufficient evidence.
+    const normalizedOpenDate = detail?.openDate?.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/, "$1T$2");
+    const explicitOpenDate = normalizedOpenDate && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalizedOpenDate)
+      ? `${normalizedOpenDate}+09:00` : normalizedOpenDate;
+    const confirmedOpenAt = explicitOpenDate ? Date.parse(explicitOpenDate) : NaN;
+    const confirmation = `${confirmed}:${confirmedOpenAt}`;
+    if (this.archiveStore && confirmed && Number.isFinite(confirmedOpenAt) && confirmedOpenAt <= Date.now()
+      && confirmation !== this.sealedConfirmation) {
+      this.sealedConfirmation = confirmation;
+      const previousWrites = this.writeQueue;
+      this.sealQueue = this.sealQueue.then(async () => {
+        await previousWrites;
+        await this.archiveStore!.sealPriorCycles({
+          channelId: this.config.channelId, sessionId: confirmed,
+          openedAt: new Date(confirmedOpenAt).toISOString()
+        });
+        await compressEligibleArchives(this.archiveStore!, this.chatIndex);
+      }).catch(async () => {
+        if (this.sealedConfirmation === confirmation) this.sealedConfirmation = null;
+        await this.logger.log("crawler", "warn", "archive_cycle_seal_failed", "이전 방송 완료 판정을 보류했습니다.", {
+          channelId: this.config.channelId
+        }).catch(() => {});
+      });
     }
   }
 
@@ -298,10 +333,13 @@ class StreamerWorker {
         console.warn(`[crawler:${this.config.name}] recent chat request failed`, error);
       }
     });
-    chat.on("chat", (event) => void this.record("chat", event));
-    chat.on("donation", (event) => void this.record("donation", event));
-    chat.on("subscription", (event) => void this.record("subscription", event));
-    chat.on("systemMessage", (event) => void this.record("system", event));
+    const receive = (type: ArchiveRecord["event"]) => (event: ChatEvent) => {
+      if (this.chat === chat && !this.stopped) void this.record(type, event);
+    };
+    chat.on("chat", receive("chat"));
+    chat.on("donation", receive("donation"));
+    chat.on("subscription", receive("subscription"));
+    chat.on("systemMessage", receive("system"));
     await chat.connect();
     this.updateSnapshot();
   }
@@ -326,11 +364,15 @@ class StreamerWorker {
         console.warn(`[crawler:${this.config.name}] disconnect failed`, error);
       }
     }
+    await this.writeQueue;
     this.updateSnapshot();
   }
 
   private async record(eventType: ArchiveRecord["event"], event: ChatEvent) {
     if (!this.currentFile || !this.kind || !this.sessionId) return;
+    // Capture destination and broadcast metadata before any awaited operation.
+    const currentFile = this.currentFile;
+    const relativeFile = path.relative(this.dataDir, currentFile).replaceAll("\\", "/");
     const messageAt = new Date(event.time || Date.now()).toISOString();
     const nickname = event.profile?.nickname || (eventType === "system" ? "SYSTEM" : "익명");
     const dedupeKey = `${event.time || 0}:${event.profile?.userIdHash || nickname}:${event.message || ""}:${eventType}`;
@@ -360,28 +402,53 @@ class StreamerWorker {
       recent: Boolean(event.isRecent),
       ...(event.extras === undefined ? {} : { extras: event.extras })
     };
+    const write = async () => {
     try {
-      await appendRecord(this.currentFile, record);
+      if (this.archiveStore && !this.activatedFiles.has(relativeFile)) {
+        const previous = this.archiveStore.getState(relativeFile);
+        if (previous && previous.state !== "ACTIVE") throw new Error("Refusing to reopen a sealed archive path");
+        await this.archiveStore.registerActive(relativeFile, {
+          channelId: record.streamer.channelId, sessionId: record.broadcast.sessionId, openedAt: record.broadcast.openedAt
+        });
+        this.activatedFiles.add(relativeFile);
+      }
+      const append = async () => {
+        if (this.archiveStore) {
+          if (this.archiveStore.getState(relativeFile)?.state !== "ACTIVE") throw new Error("Archive is no longer active; append refused");
+          const compressedExists = await lstat(`${currentFile}.gz`).then(() => true, error => {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+            throw error;
+          });
+          if (compressedExists) throw new Error("Compressed archive path exists; append refused");
+        }
+        await appendRecord(currentFile, record);
       try {
-        this.chatIndex.addRecord(this.snapshot.file || "", record);
+        this.chatIndex.addRecord(relativeFile, record);
       } catch (error) {
         void this.logger.log("crawler", "error", "chat_index_write_failed", "채팅 검색 인덱스 기록에 실패했습니다.", {
           channelId: this.config.channelId,
           streamer: this.config.name,
-          file: this.snapshot.file,
+          file: relativeFile,
           error: error instanceof Error ? error.message : String(error)
         });
       }
+      };
+      if (this.archiveStore) await this.archiveStore.withFile(relativeFile, append);
+      else await append();
     } catch (error) {
       this.snapshot.lastError = error instanceof Error ? error.message : String(error);
       void this.logger.log("crawler", "error", "archive_write_failed", "채팅 아카이브 기록에 실패했습니다.", {
         channelId: this.config.channelId,
         streamer: this.config.name,
-        file: this.snapshot.file,
+        file: relativeFile,
         error: this.snapshot.lastError
       });
       console.error(`[crawler:${this.config.name}] archive write failed`, error);
     }
+    };
+    const pending = this.writeQueue.then(write);
+    this.writeQueue = pending.catch(() => {});
+    await pending;
   }
 
   private setFile(kind: ArchiveKind, at: string | Date) {
@@ -396,6 +463,24 @@ class StreamerWorker {
     this.snapshot.connected = Boolean(this.chat?.connected);
   }
 
+}
+
+export async function compressEligibleArchives(store: ArchiveStore, index: ChatIndex, now = Date.now()) {
+  const results: Array<{ id: string; compressed: boolean; reason?: string }> = [];
+  for (const state of store.listStates()) {
+    if (state.state !== "CLOSED" || state.lastRecordAt === undefined || now - state.lastRecordAt < 7 * 24 * 60 * 60_000) continue;
+    // syncFile and compress each acquire the shared lease themselves.
+    // The cycle is already sealed, so no writer can append between them.
+    try {
+      await index.syncFile(state.id);
+      results.push({ id: state.id, ...await store.compress(state.id, now) });
+    } catch {
+      // One damaged/unreadable archive must not prevent other files being processed.
+      // Do not include raw paths, chat contents, or exception messages in logs.
+      results.push({ id: state.id, compressed: false, reason: "archive_processing_failed" });
+    }
+  }
+  return results;
 }
 
 export class CrawlerManager {
@@ -413,10 +498,13 @@ export class CrawlerManager {
     private configDir: string,
     private dataDir: string,
     private logger: OperationalLogger,
-    private chatIndex: ChatIndex
+    private chatIndex: ChatIndex,
+    private archiveStore?: ArchiveStore
   ) {}
 
   async start() {
+    // Keep clone isolation effective after settings reload as well as startup.
+    if (process.env.CRAWLER_DISABLED === "1") return;
     const { streamers, credentials, crawler } = await readRawSettings(this.configDir);
     const pollIntervalMs = crawler.statusPollSeconds * 1_000;
     this.scanStaggerMs = crawler.scanStaggerSeconds * 1_000;
@@ -433,7 +521,8 @@ export class CrawlerManager {
           offChatLimitMs,
           this.logger,
           this.chatIndex,
-          this.scanHistory.get(streamer.channelId) || 0
+          this.scanHistory.get(streamer.channelId) || 0,
+          this.archiveStore
         )
     );
     this.scanCursor = 0;

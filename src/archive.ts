@@ -3,6 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import readline from "node:readline";
 import type { ArchiveRecord } from "./types";
+import type { ArchiveStore } from "./archive-store";
 import { assertArchiveFile, assertPublicArchivePath, resolveExistingInside, resolveInside } from "./paths";
 
 export async function appendRecord(filePath: string, record: ArchiveRecord): Promise<void> {
@@ -14,7 +15,7 @@ export async function appendRecord(filePath: string, record: ArchiveRecord): Pro
   });
 }
 
-export async function listArchive(root: string, relativeInput: unknown) {
+export async function listArchive(root: string, relativeInput: unknown, store?: ArchiveStore) {
   const relative = assertPublicArchivePath(relativeInput);
   const directory = await resolveExistingInside(root, relative);
   const info = await stat(directory);
@@ -23,20 +24,35 @@ export async function listArchive(root: string, relativeInput: unknown) {
     (await readdir(directory, { withFileTypes: true }))
       .filter((entry) => !entry.isSymbolicLink() && !entry.name.startsWith("."))
       .map(async (entry) => {
+        if (entry.isFile() && !/\.(?:jsonl(?:\.gz)?|txt)$/i.test(entry.name)) return null;
+        try {
         const absolute = resolveInside(directory, entry.name);
         const entryStat = await stat(absolute);
-        const itemPath = path.posix.join(relative, entry.name);
+        const gzip = entry.isFile() && /\.jsonl\.gz$/i.test(entry.name);
+        const logicalName = gzip ? entry.name.slice(0, -3) : entry.name;
+        const itemPath = path.posix.join(relative, logicalName);
+        const resolved = store && logicalName.endsWith(".jsonl") ? await store.withFile(itemPath, () => store.resolve(itemPath)) : null;
         return {
-          name: entry.name,
+          name: logicalName,
           path: itemPath,
           type: entry.isDirectory() ? "directory" : "file",
-          size: entry.isFile() ? entryStat.size : null,
+          size: resolved ? (await stat(resolved.physicalPath)).size : entry.isFile() ? entryStat.size : null,
+          encoding: resolved?.encoding || (gzip ? "gzip" : "plain"),
+          rawSize: resolved?.rawBytes ?? (entry.isFile() ? entryStat.size : null),
           modifiedAt: entryStat.mtime.toISOString()
         };
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+          // A damaged/quarantined file must not hide healthy sibling archives.
+          return { name: entry.name.replace(/\.gz$/i, ""), path: path.posix.join(relative, entry.name.replace(/\.gz$/i, "")),
+            type: "file", size: null, rawSize: null, encoding: "unavailable", modifiedAt: new Date(0).toISOString() };
+        }
       })
   );
   return items
+    .filter((item): item is NonNullable<typeof item> => item !== null)
     .filter((item) => item.type === "directory" || [".jsonl", ".txt"].includes(path.extname(item.name).toLowerCase()))
+    .filter((item, index, all) => all.findIndex(other => other.path === item.path) === index)
     .sort((a, b) => a.type.localeCompare(b.type) || b.modifiedAt.localeCompare(a.modifiedAt));
 }
 
