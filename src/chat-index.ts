@@ -34,6 +34,8 @@ export class ChatIndex {
   private database: DatabaseSync;
   private insertRecord;
   private syncChains = new Map<string, Promise<void>>();
+  /** Called for every record written to the index; failures are ignored. */
+  recordObserver?: (record: ArchiveRecord) => void;
 
   private constructor(
     private dataDir: string,
@@ -118,6 +120,13 @@ export class ChatIndex {
       searchText(record.message),
       raw
     );
+    try { this.recordObserver?.(record); } catch { /* observers must not affect indexing */ }
+  }
+
+  rawRecordsAfter(afterId: number, limit: number) {
+    const rows = this.database.prepare("SELECT id, raw_json FROM messages WHERE id > ? ORDER BY id ASC LIMIT ?")
+      .all(afterId, limit) as Array<{ id: number | bigint; raw_json: string }>;
+    return rows.map((row) => ({ id: Number(row.id), raw: row.raw_json }));
   }
 
   async syncAll() {

@@ -4,7 +4,7 @@
 
 이 프로젝트의 초기 프로토타입 설계, 구현 및 문서 작성에는 OpenAI Codex를 사용했습니다.
 
-버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.4.0 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.4.0).
+버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.5.0 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.5.0).
 
 ## 제공 기능
 
@@ -15,7 +15,10 @@
 - 채팅 저장 경로 아래로 제한된 목록 조회, 다운로드, 삭제
 - 사용자 ID 기준 중복 제거 참여자 현황
 - 닉네임/사용자 ID 및 메시지 내용 필터
-- 채팅 내역 표시 개수를 200개, 500개, 1,000개 또는 전체로 선택
+- 파일 탐색기의 스트리머·월별 묶음과 방송 시작 시각 기준 정렬(압축 여부와 무관)
+- 탐색기에서 방송을 누르면 바로 채팅 분석으로 이동
+- 선택한 방송의 채팅 전체를 한 번에 불러와 스크롤에 맞춰 표시
+- 채팅의 `{:이름:}` 이모티콘을 이미지로 표시. 이미지는 `data/.chzzk-emoji`에 저장하고 주 1회 누락·실패분을 보충
 - 항목별·일별 구조화 운영 로그와 전용 웹 탐색·분석
 - 7일 초과 운영 로그의 GZIP 자동 압축 보존
 - 수집 완료 후 7일이 지난 채팅 원본의 gzip9 압축과 압축 해제 없는 검색

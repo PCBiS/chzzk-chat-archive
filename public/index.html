@@ -25,7 +25,7 @@
             <p>앞으로 로그인할 아이디와 안전한 비밀번호를 설정하세요.</p>
           </div>
           <label>관리자 아이디
-            <input name="username" autocomplete="username" minlength="3" maxlength="64" pattern="[A-Za-z0-9_.-]+" placeholder="영문·숫자 3자 이상" required />
+            <input name="username" autocomplete="username" minlength="3" maxlength="64" pattern="[A-Za-z0-9_.\-]+" placeholder="영문·숫자 3자 이상" required />
           </label>
           <label>비밀번호
             <input name="password" type="password" autocomplete="new-password" minlength="6" maxlength="256" placeholder="6자 이상" required />
@@ -87,11 +87,11 @@
               <h2>파일 탐색기</h2>
               <div id="breadcrumbs" class="breadcrumbs"></div>
             </div>
-            <span class="security-note">다운로드 및 삭제 전용</span>
+            <span class="security-note">방송을 누르면 채팅을 바로 엽니다</span>
           </div>
           <div class="table-wrap">
-            <table>
-              <thead><tr><th>이름</th><th>종류</th><th>크기</th><th>수정 시각</th><th></th></tr></thead>
+            <table class="file-table">
+              <thead><tr><th>방송</th><th>종류</th><th>크기</th><th></th></tr></thead>
               <tbody id="file-list"></tbody>
             </table>
             <div id="empty-files" class="empty hidden">이 폴더에는 아직 채팅 파일이 없습니다.</div>
@@ -105,19 +105,11 @@
               <h2>채팅 분석</h2>
               <p id="selected-file" class="muted">탐색기에서 분석할 JSONL 파일을 선택하세요.</p>
             </div>
-            <div class="row-actions"><button id="rebuild-analysis" class="ghost-button">검색 자료 다시 만들기</button><button id="back-to-files" class="ghost-button">파일 선택</button></div>
+            <div class="row-actions"><button id="rebuild-analysis" class="ghost-button">검색 자료 다시 만들기</button><button id="back-to-files" class="ghost-button">← 파일 목록</button></div>
           </div>
           <form id="filter-form" class="filters">
             <label>사용자 필터<input id="user-filter" placeholder="닉네임 또는 사용자 ID" /></label>
             <label>메시지 검색<input id="message-filter" placeholder="메시지에 포함된 단어" /></label>
-            <label>표시 개수
-              <select id="message-limit">
-                <option value="200" selected>200개</option>
-                <option value="500">500개</option>
-                <option value="1000">1,000개</option>
-                <option value="all">전부</option>
-              </select>
-            </label>
             <button class="primary-button" type="submit">필터 적용</button>
           </form>
           <div class="metrics">
@@ -127,11 +119,11 @@
           </div>
           <div class="analysis-grid">
             <section class="subpanel">
-              <div class="subpanel-title"><h3>참여자 현황</h3><span>메시지 수</span></div>
+              <div class="subpanel-title"><h3>참여자</h3><span>메시지 수</span></div>
               <div id="user-list" class="user-list"></div>
             </section>
             <section class="subpanel">
-              <div class="subpanel-title"><h3>채팅 내역</h3><span id="message-count"></span></div>
+              <div class="subpanel-title"><h3>채팅</h3><span id="message-count"></span></div>
               <div id="message-list" class="message-list"></div>
             </section>
           </div>
@@ -147,7 +139,7 @@
             <span class="security-note">일별 저장 · 7일 초과 GZIP 압축</span>
           </div>
           <div class="table-wrap">
-            <table>
+            <table class="log-table">
               <thead><tr><th>이름</th><th>종류</th><th>크기</th><th>수정 시각</th><th></th></tr></thead>
               <tbody id="log-file-list"></tbody>
             </table>

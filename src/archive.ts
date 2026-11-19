@@ -15,6 +15,18 @@ export async function appendRecord(filePath: string, record: ArchiveRecord): Pro
   });
 }
 
+const ARCHIVE_NAME = /^(\d{2})(\d{2})(\d{2})_(\d{2})h(\d{2})m(\d{2})s_.*_(live|off)\.jsonl$/;
+
+/** Broadcast start (KST, from the file name) and kind; null when the name does not follow the crawler's pattern. */
+export function parseArchiveName(name: string): { startedAt: string; kind: "live" | "off" } | null {
+  const match = ARCHIVE_NAME.exec(name);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, kind] = match;
+  const parsed = new Date(`20${year}-${month}-${day}T${hour}:${minute}:${second}+09:00`);
+  if (Number.isNaN(parsed.valueOf())) return null;
+  return { startedAt: parsed.toISOString(), kind: kind as "live" | "off" };
+}
+
 export async function listArchive(root: string, relativeInput: unknown, store?: ArchiveStore) {
   const relative = assertPublicArchivePath(relativeInput);
   const directory = await resolveExistingInside(root, relative);
@@ -32,8 +44,11 @@ export async function listArchive(root: string, relativeInput: unknown, store?: 
         const logicalName = gzip ? entry.name.slice(0, -3) : entry.name;
         const itemPath = path.posix.join(relative, logicalName);
         const resolved = store && logicalName.endsWith(".jsonl") ? await store.withFile(itemPath, () => store.resolve(itemPath)) : null;
+        const named = entry.isFile() ? parseArchiveName(logicalName) : null;
         return {
           name: logicalName,
+          startedAt: named?.startedAt ?? null,
+          kind: named?.kind ?? null,
           path: itemPath,
           type: entry.isDirectory() ? "directory" : "file",
           size: resolved ? (await stat(resolved.physicalPath)).size : entry.isFile() ? entryStat.size : null,
@@ -44,7 +59,8 @@ export async function listArchive(root: string, relativeInput: unknown, store?: 
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
           // A damaged/quarantined file must not hide healthy sibling archives.
-          return { name: entry.name.replace(/\.gz$/i, ""), path: path.posix.join(relative, entry.name.replace(/\.gz$/i, "")),
+          const named = parseArchiveName(entry.name.replace(/\.gz$/i, ""));
+          return { startedAt: named?.startedAt ?? null, kind: named?.kind ?? null, name: entry.name.replace(/\.gz$/i, ""), path: path.posix.join(relative, entry.name.replace(/\.gz$/i, "")),
             type: "file", size: null, rawSize: null, encoding: "unavailable", modifiedAt: new Date(0).toISOString() };
         }
       })
@@ -53,7 +69,10 @@ export async function listArchive(root: string, relativeInput: unknown, store?: 
     .filter((item): item is NonNullable<typeof item> => item !== null)
     .filter((item) => item.type === "directory" || [".jsonl", ".txt"].includes(path.extname(item.name).toLowerCase()))
     .filter((item, index, all) => all.findIndex(other => other.path === item.path) === index)
-    .sort((a, b) => a.type.localeCompare(b.type) || b.modifiedAt.localeCompare(a.modifiedAt));
+    // Order by broadcast start so compressing a file (which rewrites its mtime) does not move it.
+    .sort((a, b) => a.type.localeCompare(b.type)
+      || (b.startedAt ?? b.modifiedAt).localeCompare(a.startedAt ?? a.modifiedAt)
+      || a.name.localeCompare(b.name));
 }
 
 export interface AnalyzeOptions {

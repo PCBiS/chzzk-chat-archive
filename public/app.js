@@ -4,6 +4,11 @@ const state = {
   currentLogPath: "",
   selectedFile: "",
   selectedLogFile: "",
+  files: [],
+  openMonths: new Map(),
+  messages: [],
+  renderedMessages: 0,
+  analysisRequest: 0,
   statusTimer: null,
   settingsLoaded: false,
   bulkDeleteMode: false,
@@ -105,25 +110,85 @@ async function loadStatus() {
 async function loadFiles(path = "") {
   state.currentPath = path;
   try {
-    const files = await api(`/api/files?path=${encodeURIComponent(path)}`);
+    state.files = await api(`/api/files?path=${encodeURIComponent(path)}`);
     renderBreadcrumbs(path);
-    $("#empty-files").classList.toggle("hidden", files.length !== 0);
-    $("#file-list").innerHTML = files.map((item) => `
-      <tr>
-        <td><button class="file-button" data-open="${escapeHtml(item.path)}" data-type="${item.type}">
-          ${item.type === "directory" ? "▰" : "▤"}&nbsp; ${escapeHtml(item.name)}
-        </button></td>
-        <td>${item.type === "directory" ? "폴더" : item.encoding === "unavailable" ? "확인 필요" : item.encoding === "gzip" ? "압축 채팅 기록" : "채팅 기록"}</td>
-        <td>${item.size === null ? "—" : formatBytes(item.size)}</td>
-        <td>${new Date(item.modifiedAt).toLocaleString("ko-KR")}</td>
-        <td><div class="row-actions">
-          ${item.type === "file" ? `<button data-analyze="${escapeHtml(item.path)}">분석</button>${item.encoding === "gzip" ? `<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=gzip">압축본</a>` : ""}<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=jsonl">JSONL 다운로드</a>` : ""}
-          <button class="delete-archive" data-delete="${escapeHtml(item.path)}" data-delete-type="${item.type}">삭제</button>
-        </div></td>
-      </tr>`).join("");
+    renderFiles();
   } catch (error) {
     toast(error.message);
   }
+}
+
+const KST = "Asia/Seoul";
+const monthKeyFormat = new Intl.DateTimeFormat("en-CA", { timeZone: KST, year: "numeric", month: "2-digit" });
+const monthLabelFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: KST, year: "numeric", month: "long" });
+const dayKeyFormat = new Intl.DateTimeFormat("en-CA", { timeZone: KST, year: "numeric", month: "2-digit", day: "2-digit" });
+const startLabelFormat = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: KST, day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+});
+
+function fileKindLabel(item) {
+  if (item.type === "directory") return "폴더";
+  if (item.encoding === "unavailable") return "확인 필요";
+  return item.encoding === "gzip" ? "압축됨" : "원본";
+}
+
+function fileRow(item, dayStart) {
+  const started = item.startedAt ? new Date(item.startedAt) : null;
+  const title = item.type === "directory"
+    ? `<span class="folder-icon"></span> ${escapeHtml(item.name)}`
+    : started
+      ? `<span class="file-start">${escapeHtml(startLabelFormat.format(started))}</span>
+         <span class="kind-badge ${item.kind}">${item.kind === "live" ? "LIVE" : "OFF"}</span>
+         <small class="file-name">${escapeHtml(item.name)}</small>`
+      : escapeHtml(item.name);
+  return `
+    <tr class="${dayStart ? "day-start" : ""}">
+      <td><button class="file-button" data-open="${escapeHtml(item.path)}" data-type="${item.type}">${title}</button></td>
+      <td>${fileKindLabel(item)}</td>
+      <td>${item.size === null ? "—" : formatBytes(item.size)}</td>
+      <td><div class="row-actions">
+        ${item.type === "file" ? `${item.encoding === "gzip" ? `<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=gzip">압축본</a>` : ""}<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=jsonl">JSONL</a>` : ""}
+        <button class="delete-archive" data-delete="${escapeHtml(item.path)}" data-delete-type="${item.type}">삭제</button>
+      </div></td>
+    </tr>`;
+}
+
+// Files arrive sorted by broadcast start (newest first). Group them by KST month;
+// the grouping is display-only and never changes archive paths.
+function renderFiles() {
+  const files = state.files;
+  $("#empty-files").classList.toggle("hidden", files.length !== 0);
+  const rows = files.filter((item) => item.type === "directory").map((item) => fileRow(item, false));
+  const groups = new Map();
+  for (const item of files.filter((entry) => entry.type !== "directory")) {
+    const key = item.startedAt ? monthKeyFormat.format(new Date(item.startedAt)) : "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  let first = true;
+  for (const [key, items] of groups) {
+    const stateKey = `${state.currentPath}\n${key}`;
+    if (!state.openMonths.has(stateKey)) state.openMonths.set(stateKey, first);
+    first = false;
+    const open = state.openMonths.get(stateKey);
+    const label = key ? monthLabelFormat.format(new Date(items[0].startedAt)) : "날짜 미상";
+    const bytes = items.reduce((sum, item) => sum + (item.size || 0), 0);
+    rows.push(`
+      <tr class="month-row">
+        <td colspan="4"><button data-month="${escapeHtml(key)}" aria-expanded="${open}">
+          <span class="month-caret"></span> ${escapeHtml(label)}
+          <small>${items.length.toLocaleString("ko-KR")}개 · ${formatBytes(bytes)}</small>
+        </button></td>
+      </tr>`);
+    if (!open) continue;
+    let previousDay = null;
+    for (const item of items) {
+      const day = item.startedAt ? dayKeyFormat.format(new Date(item.startedAt)) : "";
+      rows.push(fileRow(item, previousDay !== null && day !== previousDay));
+      previousDay = day;
+    }
+  }
+  $("#file-list").innerHTML = rows.join("");
 }
 
 function renderBreadcrumbs(path) {
@@ -354,10 +419,103 @@ async function loadSettings() {
   }
 }
 
+const MESSAGE_BATCH = 400;
+const EMOJI_TOKEN = /\{:([^:{}\s]+):\}/g;
+const EVENT_LABELS = { donation: "후원", subscription: "구독", system: "시스템" };
+
+const messageTimeFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: KST, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+const messageDayFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: KST, year: "numeric", month: "long", day: "numeric", weekday: "long" });
+
+// Stable per-participant colour so a conversation is easier to follow.
+function nickColor(identity) {
+  let hash = 0;
+  for (let index = 0; index < identity.length; index += 1) hash = (hash * 31 + identity.charCodeAt(index)) >>> 0;
+  return `hsl(${hash % 360} 62% 70%)`;
+}
+
+function appendMessageText(body, record) {
+  const text = record.message;
+  const emojis = record.emojis;
+  if (!emojis) {
+    body.append(text);
+    return;
+  }
+  let last = 0;
+  for (const match of text.matchAll(EMOJI_TOKEN)) {
+    const key = emojis[match[1]];
+    if (!key) continue;
+    if (match.index > last) body.append(text.slice(last, match.index));
+    const image = document.createElement("img");
+    image.className = "emoji";
+    image.alt = match[0];
+    image.title = match[1];
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.addEventListener("error", () => image.replaceWith(match[0]), { once: true });
+    image.src = `/api/emoji/${encodeURIComponent(key)}`;
+    body.append(image);
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) body.append(text.slice(last));
+}
+
+function messageNode(record) {
+  const at = new Date(record.messageAt);
+  const article = document.createElement("article");
+  article.className = `message ${EVENT_LABELS[record.event] ? record.event : ""}`.trim();
+  const time = document.createElement("time");
+  time.dateTime = record.messageAt;
+  time.title = at.toLocaleString("ko-KR");
+  time.textContent = messageTimeFormat.format(at);
+  const body = document.createElement("div");
+  body.className = "message-body";
+  const name = document.createElement("button");
+  name.type = "button";
+  name.className = "nick";
+  name.dataset.user = record.user.id || record.user.nickname;
+  name.title = "이 참여자의 채팅만 보기";
+  name.textContent = record.user.nickname;
+  name.style.color = nickColor(name.dataset.user);
+  body.append(name);
+  if (EVENT_LABELS[record.event]) {
+    const badge = document.createElement("span");
+    badge.className = "event-badge";
+    badge.textContent = EVENT_LABELS[record.event];
+    body.append(badge);
+  }
+  appendMessageText(body, record);
+  article.append(time, body);
+  return article;
+}
+
+// The whole result is held in memory; only the part the reader has scrolled to is put in the DOM.
+function renderMoreMessages() {
+  const next = state.messages.slice(state.renderedMessages, state.renderedMessages + MESSAGE_BATCH);
+  if (!next.length) return;
+  const fragment = document.createDocumentFragment();
+  for (const record of next) {
+    const day = messageDayFormat.format(new Date(record.messageAt));
+    if (day !== state.renderedDay) {
+      const divider = document.createElement("div");
+      divider.className = "day-divider";
+      divider.textContent = day;
+      fragment.append(divider);
+      state.renderedDay = day;
+    }
+    fragment.append(messageNode(record));
+  }
+  $("#message-list").append(fragment);
+  state.renderedMessages += next.length;
+}
+
 async function analyze(file = state.selectedFile) {
   if (!file) {
     toast("먼저 분석할 파일을 선택하세요.");
     return;
+  }
+  if (file !== state.selectedFile) {
+    $("#user-filter").value = "";
+    $("#message-filter").value = "";
   }
   state.selectedFile = file;
   $("#selected-file").textContent = file;
@@ -366,10 +524,13 @@ async function analyze(file = state.selectedFile) {
     path: file,
     user: $("#user-filter").value,
     q: $("#message-filter").value,
-    limit: $("#message-limit").value
+    limit: "all"
   });
+  const request = ++state.analysisRequest;
+  $("#message-count").textContent = "불러오는 중…";
   try {
     const result = await api(`/api/analysis?${params}`);
+    if (request !== state.analysisRequest) return;
     $("#metric-total").textContent = result.totalMessages.toLocaleString("ko-KR");
     $("#metric-filtered").textContent = result.filteredMessages.toLocaleString("ko-KR");
     $("#metric-users").textContent = result.uniqueUsers.toLocaleString("ko-KR");
@@ -380,17 +541,41 @@ async function analyze(file = state.selectedFile) {
         </button>
         <strong>${user.count.toLocaleString("ko-KR")}</strong>
       </div>`).join("") : `<div class="empty">참여자 정보가 없습니다.</div>`;
-    $("#message-count").textContent = `${result.messages.length.toLocaleString("ko-KR")} / ${result.filteredMessages.toLocaleString("ko-KR")}개 표시`;
-    $("#message-list").innerHTML = result.messages.length ? result.messages.map((record) => `
-      <article class="message">
-        <div class="message-meta"><strong>${escapeHtml(record.user.nickname)}</strong><span>${new Date(record.messageAt).toLocaleString("ko-KR")}</span></div>
-        <p>${escapeHtml(record.message)}</p>
-      </article>`).join("") : `<div class="empty">조건에 맞는 채팅이 없습니다.</div>`;
+    $("#message-count").textContent = `${result.messages.length.toLocaleString("ko-KR")}개`;
+    state.messages = result.messages;
+    state.renderedMessages = 0;
+    state.renderedDay = "";
+    const list = $("#message-list");
+    list.scrollTop = 0;
+    if (result.messages.length) {
+      list.replaceChildren();
+      renderMoreMessages();
+    } else {
+      list.innerHTML = `<div class="empty">조건에 맞는 채팅이 없습니다.</div>`;
+    }
     if (result.invalidLines) toast(`읽을 수 없는 줄 ${result.invalidLines}개를 제외했습니다.`);
   } catch (error) {
+    if (request !== state.analysisRequest) return;
+    $("#message-count").textContent = "";
+    state.messages = [];
+    state.renderedMessages = 0;
+    state.renderedDay = "";
+    $("#message-list").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
     toast(error.message);
   }
 }
+
+$("#message-list").addEventListener("click", (event) => {
+  const user = event.target.closest("[data-user]");
+  if (user) {
+    $("#user-filter").value = user.dataset.user;
+    analyze();
+  }
+});
+$("#message-list").addEventListener("scroll", (event) => {
+  const list = event.currentTarget;
+  if (list.scrollTop + list.clientHeight >= list.scrollHeight - 600) renderMoreMessages();
+}, { passive: true });
 
 $("#rebuild-analysis").addEventListener("click", async (event) => {
   if (!state.selectedFile) { toast("먼저 분석할 파일을 선택하세요."); return; }
@@ -463,10 +648,12 @@ $("#file-list").addEventListener("click", (event) => {
   const analysis = event.target.closest("[data-analyze]");
   const deletion = event.target.closest("[data-delete]");
   if (open?.dataset.type === "directory") loadFiles(open.dataset.open);
-  if (open?.dataset.type === "file") {
-    state.selectedFile = open.dataset.open;
-    $("#selected-file").textContent = state.selectedFile;
-    toast("파일을 선택했습니다. 내용을 보려면 분석 버튼을 누르세요.");
+  if (open?.dataset.type === "file") analyze(open.dataset.open);
+  const month = event.target.closest("[data-month]");
+  if (month) {
+    const stateKey = `${state.currentPath}\n${month.dataset.month}`;
+    state.openMonths.set(stateKey, !state.openMonths.get(stateKey));
+    renderFiles();
   }
   if (analysis) analyze(analysis.dataset.analyze);
   if (deletion) {

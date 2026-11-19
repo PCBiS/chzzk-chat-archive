@@ -6,6 +6,7 @@ import { ensureSessionSecret } from "./admin";
 import { OperationalLogger } from "./logs";
 import { ChatIndex } from "./chat-index";
 import { ArchiveStore } from "./archive-store";
+import { EmojiStore } from "./emoji-store";
 
 let activeLogger: OperationalLogger | null = null;
 let activeChatIndex: ChatIndex | null = null;
@@ -30,6 +31,11 @@ async function main() {
   activeLogger = logger;
 
   const archiveStore = new ArchiveStore(dataDir);
+  const emojiStore = new EmojiStore(dataDir, {
+    // The isolated clone harness must not reach external hosts.
+    networkEnabled: process.env.CRAWLER_DISABLED !== "1" && process.env.EMOJI_FETCH_DISABLED !== "1"
+  });
+  let emojiReady = false;
   let crawler: CrawlerManager | undefined;
   let server: ReturnType<ReturnType<typeof createServer>["listen"]> | undefined;
   let compressionRun: Promise<void> = Promise.resolve();
@@ -45,6 +51,7 @@ async function main() {
     try { await crawler?.stop(); } catch { failed = true; }
     try { await compressionRun; } catch { failed = true; }
     await httpClosed;
+    if (emojiReady) { try { await emojiStore.stop(); } catch { failed = true; } }
     try { activeChatIndex?.close(); } catch { failed = true; }
     activeChatIndex = null;
     try { archiveStore.close(); } catch { failed = true; }
@@ -55,6 +62,14 @@ async function main() {
   await archiveStore.recover();
   const chatIndex = await ChatIndex.open(dataDir, archiveStore);
   activeChatIndex = chatIndex;
+  // Emoticon images are a viewing aid: a failure here must never stop collection.
+  try {
+    await emojiStore.init();
+    emojiReady = true;
+    chatIndex.recordObserver = (record) => emojiStore.observe(record.extras);
+  } catch {
+    await logger.log("system", "warn", "emoji_store_unavailable", "이모티콘 저장소를 열지 못해 이모티콘을 텍스트로 표시합니다.");
+  }
   await chatIndex.syncAll();
   await logger.log("system", "info", "chat_index_ready", "SQLite 채팅 검색 인덱스를 준비했습니다.");
 
@@ -89,8 +104,15 @@ async function main() {
     crawler,
     chatIndex,
     logger,
-    archiveStore
+    archiveStore,
+    emojiStore: emojiReady ? emojiStore : undefined
   });
+  if (emojiReady) {
+    emojiStore.startSchedule(chatIndex, (error) => {
+      void logger.log("system", error ? "warn" : "info", error ? "emoji_refresh_failed" : "emoji_refresh_completed",
+        error ? "이모티콘 주간 갱신에 실패했습니다." : "이모티콘 주간 갱신을 마쳤습니다.", error ? undefined : emojiStore.counts());
+    });
+  }
   server = app.listen(port, "0.0.0.0", () => {
     console.log(`[web] http://0.0.0.0:${port}`);
     void logger.log("system", "info", "web_started", "웹 서버를 시작했습니다.", { port });

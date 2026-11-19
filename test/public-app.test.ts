@@ -28,14 +28,13 @@ test("async authentication handlers retain their form before awaiting", async ()
   }
 });
 
-test("chat analysis sends the selected message limit", async () => {
+test("chat analysis loads the whole result and opens straight from the explorer", async () => {
   const source = await readFile(path.resolve(__dirname, "../../public/app.js"), "utf8");
   const html = await readFile(path.resolve(__dirname, "../../public/index.html"), "utf8");
 
-  assert.match(source, /limit: \$\("#message-limit"\)\.value/);
-  assert.doesNotMatch(source, /message-load-more/);
-  assert.match(html, /<option value="200" selected>200개<\/option>/);
-  assert.match(html, /<option value="500">500개<\/option>/);
-  assert.match(html, /<option value="1000">1,000개<\/option>/);
-  assert.match(html, /<option value="all">전부<\/option>/);
+  assert.match(source, /limit: "all"/);
+  assert.doesNotMatch(html, /message-limit/);
+  assert.match(source, /if \(open\?\.dataset\.type === "file"\) analyze\(open\.dataset\.open\);/);
+  // Chat text and emoji must be inserted as DOM nodes, never as markup.
+  assert.doesNotMatch(source, /message-list"\)\.innerHTML = result/);
 });

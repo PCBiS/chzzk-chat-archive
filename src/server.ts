@@ -11,6 +11,7 @@ import { listArchive } from "./archive";
 import { assertArchiveFile, assertPublicArchivePath, normalizeRelativePath, resolveExistingInside } from "./paths";
 import type { CrawlerManager } from "./crawler";
 import type { ChatIndex } from "./chat-index";
+import type { EmojiStore } from "./emoji-store";
 import { readPublicSettings, updateSettings } from "./settings";
 import { adminExists, createAdmin, verifyAdmin } from "./admin";
 import { analyzeLog, assertLogFile, listLogs, type OperationalLogger } from "./logs";
@@ -34,6 +35,7 @@ interface ServerOptions {
   chatIndex: ChatIndex;
   logger: OperationalLogger;
   archiveStore?: ArchiveStore;
+  emojiStore?: EmojiStore;
 }
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -285,14 +287,38 @@ export function createServer(options: ServerOptions) {
       const limit = requestedLimit === "all"
         ? null
         : Math.min(1000, Math.max(1, Number.parseInt(requestedLimit, 10) || 200));
-      response.json(
-        await options.chatIndex.analyze(assertPublicArchivePath(request.query.path), {
-          user: typeof request.query.user === "string" ? request.query.user : undefined,
-          query: typeof request.query.q === "string" ? request.query.q : undefined,
-          offset,
-          limit
+      const result = await options.chatIndex.analyze(assertPublicArchivePath(request.query.path), {
+        user: typeof request.query.user === "string" ? request.query.user : undefined,
+        query: typeof request.query.q === "string" ? request.query.q : undefined,
+        offset,
+        limit
+      });
+      // The viewer only needs display fields. Raw extras (tokens, client metadata) stay on the server.
+      response.json({
+        ...result,
+        messages: result.messages.map((record) => {
+          const emojis = options.emojiStore?.resolve(record.message, record.extras);
+          return {
+            messageAt: record.messageAt,
+            event: record.event,
+            user: record.user,
+            message: record.message,
+            ...(emojis ? { emojis } : {})
+          };
         })
-      );
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/emoji/:key", requireAuth, async (request, response, next) => {
+    try {
+      const file = await options.emojiStore?.file(request.params.key);
+      if (!file) return response.status(404).json({ error: "이모티콘을 찾을 수 없습니다." });
+      response.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+      response.type(file.contentType);
+      await pipeline(createReadStream(file.path), response);
     } catch (error) {
       next(error);
     }
