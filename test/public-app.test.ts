@@ -34,7 +34,7 @@ test("chat analysis loads the whole result and opens straight from the explorer"
 
   assert.match(source, /limit: "all"/);
   assert.doesNotMatch(html, /message-limit/);
-  assert.match(source, /if \(open\?\.dataset\.type === "file"\) analyze\(open\.dataset\.open\);/);
+  assert.match(source, /if \(open\) return void analyze\(open\.dataset\.open\);/);
   // Chat text and emoji must be inserted as DOM nodes, never as markup.
   assert.doesNotMatch(source, /message-list"\)\.innerHTML = result/);
 });

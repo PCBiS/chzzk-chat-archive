@@ -151,3 +151,33 @@ test("rejects successful HTTP responses without a logged-in user", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.status, "not_logged_in");
 });
+
+test("cookie monitor separates expired cookies from failed checks and logs transitions once", async () => {
+  const { CookieMonitor } = await import("../src/cookie-monitor");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const nodePath = await import("node:path");
+  const dir = await mkdtemp(nodePath.join(os.tmpdir(), "cookie-monitor-"));
+  const events: string[] = [];
+  const logger = { log: async (_c: string, _l: string, event: string) => { events.push(event); } } as any;
+  let next: any = { ok: false, status: "network_error", message: "네트워크" };
+  let calls = 0;
+  const monitor = new CookieMonitor(dir, logger, async () => { calls += 1; return next; });
+
+  assert.equal(monitor.snapshot().state, "unknown");
+  assert.equal((await monitor.check()).state, "missing");
+  assert.equal(calls, 0, "no request is made without stored cookies");
+
+  await writeFile(nodePath.join(dir, "credentials.json"), JSON.stringify({ NID_AUT: "synthetic-aut", NID_SES: "synthetic-ses" }));
+  assert.equal((await monitor.check()).state, "failed");
+  next = { ok: false, status: "expired", message: "만료" };
+  assert.equal((await monitor.check()).state, "expired");
+  assert.equal((await monitor.check()).state, "expired");
+  next = { ok: true, status: "valid", message: "정상", nickname: "시험계정" };
+  const valid = await monitor.check();
+  assert.equal(valid.state, "valid");
+  assert.equal(valid.nickname, "시험계정");
+  assert.ok(valid.checkedAt);
+  assert.deepEqual(events, ["cookie_check_failed", "cookie_expired", "cookie_recovered"]);
+  assert.doesNotMatch(JSON.stringify(monitor.snapshot()), /synthetic-(aut|ses)/);
+});

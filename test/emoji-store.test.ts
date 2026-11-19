@@ -172,3 +172,22 @@ test("analysis API returns display fields only and serves stored emoji to signed
   assert.deepEqual(Buffer.from(await image.arrayBuffer()), PNG);
   assert.equal((await fetch(`${base}/api/emoji/${"0".repeat(32)}`, { headers })).status, 404);
 });
+
+test("calendar counts come from names and range listing only returns matching days", async t => {
+  const { archiveDays } = await import("../src/archive");
+  const root = await temporary(t, "archive-days-");
+  await mkdir(path.join(root, "s"));
+  for (const name of ["261101_20h00m00s_s_live.jsonl.gz", "261101_23h30m00s_s_off.jsonl", "261102_00h10m00s_s_live.jsonl",
+    "261102_00h10m00s_s_live.jsonl.gz", "251231_23h59m59s_s_live.jsonl", "memo.txt", "ignored.bin"]) {
+    await writeFile(path.join(root, "s", name), "");
+  }
+  assert.deepEqual(await archiveDays(root, "s"), {
+    days: { "2026-11-01": { live: 1, off: 1 }, "2026-11-02": { live: 1, off: 0 }, "2025-12-31": { live: 1, off: 0 } },
+    undated: 1
+  });
+  const names = async (range: object) => (await listArchive(root, "s", undefined, range)).map(item => item.name);
+  assert.deepEqual(await names({ from: "2026-11-01", to: "2026-11-01" }), ["261101_23h30m00s_s_off.jsonl", "261101_20h00m00s_s_live.jsonl"]);
+  assert.deepEqual(await names({ from: "2026-11-02" }), ["261102_00h10m00s_s_live.jsonl"]);
+  assert.deepEqual(await names({ undated: true }), ["memo.txt"]);
+  await assert.rejects(() => archiveDays(root, ".chzzk-index"), /내부 저장 경로/);
+});

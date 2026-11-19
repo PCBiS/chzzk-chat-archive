@@ -27,7 +27,53 @@ export function parseArchiveName(name: string): { startedAt: string; kind: "live
   return { startedAt: parsed.toISOString(), kind: kind as "live" | "off" };
 }
 
-export async function listArchive(root: string, relativeInput: unknown, store?: ArchiveStore) {
+const KST_OFFSET = 9 * 60 * 60_000;
+
+function kstDay(iso: string) {
+  return new Date(Date.parse(iso) + KST_OFFSET).toISOString().slice(0, 10);
+}
+
+/**
+ * Broadcast counts per KST day for one folder, from file names alone.
+ * No per-file stat, so it stays cheap with years of archives.
+ */
+export async function archiveDays(root: string, relativeInput: unknown) {
+  const relative = assertPublicArchivePath(relativeInput);
+  const directory = await resolveExistingInside(root, relative);
+  if (!(await stat(directory)).isDirectory()) throw new Error("폴더만 탐색할 수 있습니다.");
+  const days: Record<string, { live: number; off: number }> = {};
+  const seen = new Set<string>();
+  let undated = 0;
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.name.startsWith(".") || !/\.(?:jsonl(?:\.gz)?|txt)$/i.test(entry.name)) continue;
+    const name = entry.name.replace(/\.gz$/i, "");
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const named = parseArchiveName(name);
+    if (!named) { undated += 1; continue; }
+    const day = days[kstDay(named.startedAt)] ||= { live: 0, off: 0 };
+    day[named.kind] += 1;
+  }
+  return { days, undated };
+}
+
+export interface ArchiveRange {
+  /** Inclusive KST days (YYYY-MM-DD). */
+  from?: string;
+  to?: string;
+  /** Only files whose name carries no broadcast time. */
+  undated?: boolean;
+}
+
+function inRange(name: string, range: ArchiveRange) {
+  const named = parseArchiveName(name);
+  if (range.undated) return !named;
+  if (!named) return false;
+  const day = kstDay(named.startedAt);
+  return (!range.from || day >= range.from) && (!range.to || day <= range.to);
+}
+
+export async function listArchive(root: string, relativeInput: unknown, store?: ArchiveStore, range?: ArchiveRange) {
   const relative = assertPublicArchivePath(relativeInput);
   const directory = await resolveExistingInside(root, relative);
   const info = await stat(directory);
@@ -35,6 +81,8 @@ export async function listArchive(root: string, relativeInput: unknown, store?: 
   const items = await Promise.all(
     (await readdir(directory, { withFileTypes: true }))
       .filter((entry) => !entry.isSymbolicLink() && !entry.name.startsWith("."))
+      // Range requests are answered from names first, so only matching files are stat-ed.
+      .filter((entry) => !range || (entry.isFile() && inRange(entry.name.replace(/\.gz$/i, ""), range)))
       .map(async (entry) => {
         if (entry.isFile() && !/\.(?:jsonl(?:\.gz)?|txt)$/i.test(entry.name)) return null;
         try {

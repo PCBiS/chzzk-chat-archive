@@ -191,3 +191,68 @@ export async function analyzeLog(
     records
   };
 }
+
+/** Periodic status polls: recorded every cycle, rarely worth reading one by one. */
+const routineEvents = new Set(["scan_started", "scan_completed"]);
+const routineMarkers = [...routineEvents].map((event) => `"event":"${event}"`);
+
+function shiftDate(date: string, days: number) {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * dayMs).toISOString().slice(0, 10);
+}
+
+/**
+ * Activity across all categories for a span of KST days, newest first.
+ * Routine polls are only counted unless includeRoutine is set.
+ */
+export async function logTimeline(
+  root: string,
+  options: { until?: string; days: number; category?: string; level?: string; query?: string; includeRoutine?: boolean; limit: number }
+) {
+  const until = options.until && /^\d{4}-\d{2}-\d{2}$/.test(options.until) && Number.isFinite(Date.parse(`${options.until}T00:00:00Z`))
+    ? options.until : koreanDate();
+  const days = Math.min(31, Math.max(1, Math.trunc(options.days) || 1));
+  const selected = categories.filter((category) => !options.category || category === options.category);
+  const queryNeedle = options.query?.trim().toLocaleLowerCase("ko-KR") || "";
+  const levels: Record<LogLevel, number> = { info: 0, warn: 0, error: 0 };
+  const records: OperationalLogRecord[] = [];
+  let routine = 0;
+  let matched = 0;
+  let invalidLines = 0;
+  for (let back = 0; back < days; back += 1) {
+    const date = shiftDate(until, -back);
+    const dayRecords: OperationalLogRecord[] = [];
+    for (const category of selected) {
+      const plain = path.join(root, category, `${date}.jsonl`);
+      const filePath = await stat(plain).then(() => plain, () => stat(`${plain}.gz`).then(() => `${plain}.gz`, () => null));
+      if (!filePath) continue;
+      const source = createReadStream(filePath);
+      const input = filePath.endsWith(".gz") ? source.pipe(createGunzip()) : source;
+      source.on("error", (error) => input.destroy(error));
+      try {
+        for await (const line of readline.createInterface({ input, crlfDelay: Infinity })) {
+          if (!line.trim()) continue;
+          if (routineMarkers.some((marker) => line.includes(marker))) {
+            routine += 1;
+            if (!options.includeRoutine) continue;
+          }
+          let record: OperationalLogRecord;
+          try { record = JSON.parse(line) as OperationalLogRecord; } catch { invalidLines += 1; continue; }
+          if (!record.timestamp || !record.level || !record.event || !record.message) { invalidLines += 1; continue; }
+          record.category ||= category;
+          if (!routineEvents.has(record.event) && record.level in levels) levels[record.level] += 1;
+          if (options.level && record.level !== options.level) continue;
+          if (queryNeedle && !`${record.event} ${record.message} ${JSON.stringify(record.details || {})}`.toLocaleLowerCase("ko-KR").includes(queryNeedle)) continue;
+          matched += 1;
+          dayRecords.push(record);
+        }
+      } catch {
+        invalidLines += 1; // An unreadable day file must not hide the other days.
+      } finally {
+        source.destroy();
+      }
+    }
+    dayRecords.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    for (const record of dayRecords) if (records.length < options.limit) records.push(record);
+  }
+  return { from: shiftDate(until, -(days - 1)), until, days, levels, routine, matched, invalidLines, truncated: matched > records.length, records };
+}

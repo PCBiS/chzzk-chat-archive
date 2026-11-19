@@ -71,10 +71,11 @@
           </div>
         </header>
 
+        <p id="cookie-banner" class="cookie-banner hidden" role="alert">치지직 로그인 쿠키가 만료되었습니다. 연령 제한 방송은 수집되지 않습니다. <button type="button" id="cookie-banner-open" class="link-button">설정에서 쿠키 갱신</button></p>
         <section id="status-strip" class="status-strip" aria-label="크롤러 상태"></section>
 
         <nav class="tabs" aria-label="주요 화면">
-          <button class="tab active" data-tab="explorer">파일 탐색기</button>
+          <button class="tab active" data-tab="explorer">채팅 기록 보기</button>
           <button class="tab" data-tab="analysis">채팅 분석</button>
           <button class="tab" data-tab="logs">운영 로그</button>
           <button class="tab" data-tab="settings">설정</button>
@@ -83,18 +84,27 @@
         <section id="explorer-panel" class="panel">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">ARCHIVE STORAGE</p>
-              <h2>파일 탐색기</h2>
-              <div id="breadcrumbs" class="breadcrumbs"></div>
+              <h2>채팅 기록 보기</h2>
+              <p id="explorer-streamer" class="panel-sub"></p>
             </div>
-            <span class="security-note">방송을 누르면 채팅을 바로 엽니다</span>
+            <div id="streamer-tabs" class="chips hidden" role="group" aria-label="스트리머"></div>
           </div>
-          <div class="table-wrap">
-            <table class="file-table">
-              <thead><tr><th>방송</th><th>종류</th><th>크기</th><th></th></tr></thead>
-              <tbody id="file-list"></tbody>
-            </table>
-            <div id="empty-files" class="empty hidden">이 폴더에는 아직 채팅 파일이 없습니다.</div>
+          <div id="empty-files" class="empty hidden">아직 저장된 채팅 기록이 없습니다.</div>
+          <div id="explorer-body" class="explorer-body">
+            <section class="explorer-section">
+              <div class="section-title"><h3>최근 7일</h3><span id="recent-count"></span></div>
+              <div id="recent-files"></div>
+            </section>
+            <section class="explorer-section explorer-older">
+              <div class="section-title"><h3>지난 방송 찾기</h3><button id="undated-link" type="button" class="link-button hidden"></button></div>
+              <div class="calendar-layout">
+                <div id="calendar" class="calendar"></div>
+                <div class="calendar-day">
+                  <div class="section-title sub"><h4 id="day-title">선택한 날</h4></div>
+                  <div id="day-files"></div>
+                </div>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -132,52 +142,34 @@
         <section id="logs-panel" class="panel hidden">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">OPERATION LOGS</p>
-              <h2>로그 탐색기</h2>
-              <div id="log-breadcrumbs" class="breadcrumbs"></div>
+              <h2>운영 로그</h2>
+              <p id="log-summary" class="log-summary"></p>
             </div>
-            <span class="security-note">일별 저장 · 7일 초과 GZIP 압축</span>
+            <div id="log-period" class="segmented" role="group" aria-label="기간">
+              <button type="button" data-days="1" class="active">오늘</button>
+              <button type="button" data-days="7">7일</button>
+              <button type="button" data-days="30">30일</button>
+            </div>
           </div>
-          <div class="table-wrap">
-            <table class="log-table">
-              <thead><tr><th>이름</th><th>종류</th><th>크기</th><th>수정 시각</th><th></th></tr></thead>
-              <tbody id="log-file-list"></tbody>
-            </table>
-            <div id="empty-logs" class="empty hidden">이 폴더에는 아직 로그가 없습니다.</div>
-          </div>
-
-          <section id="log-analysis" class="log-analysis hidden">
-            <div class="subpanel-title">
-              <div><h3>로그 분석</h3><span id="selected-log-file"></span></div>
+          <form id="log-filter-form" class="filters log-filters">
+            <div id="log-category" class="chips" role="group" aria-label="분류">
+              <button type="button" data-category="" class="active">전체</button>
+              <button type="button" data-category="crawler">수집</button>
+              <button type="button" data-category="system">시스템</button>
+              <button type="button" data-category="auth">로그인</button>
+              <button type="button" data-category="settings">설정</button>
+              <button type="button" data-category="files">파일</button>
             </div>
-            <form id="log-filter-form" class="filters log-filters">
-              <label>레벨
-                <select id="log-level-filter">
-                  <option value="">전체</option>
-                  <option value="info">Info</option>
-                  <option value="warn">Warn</option>
-                  <option value="error">Error</option>
-                </select>
-              </label>
-              <label>내용 검색<input id="log-query-filter" placeholder="이벤트, 메시지 또는 상세 정보" /></label>
-              <button class="primary-button" type="submit">필터 적용</button>
-            </form>
-            <div class="metrics">
-              <article><span>전체 기록</span><strong id="log-metric-total">—</strong></article>
-              <article><span>필터 결과</span><strong id="log-metric-filtered">—</strong></article>
-              <article><span>오류</span><strong id="log-metric-errors">—</strong></article>
-            </div>
-            <div class="analysis-grid">
-              <section class="subpanel">
-                <div class="subpanel-title"><h3>이벤트 현황</h3><span>발생 수</span></div>
-                <div id="log-event-list" class="user-list"></div>
-              </section>
-              <section class="subpanel">
-                <div class="subpanel-title"><h3>로그 기록</h3><span>최대 200개</span></div>
-                <div id="log-record-list" class="message-list"></div>
-              </section>
-            </div>
-          </section>
+            <select id="log-level-filter" aria-label="수준">
+              <option value="">모든 수준</option>
+              <option value="error">오류만</option>
+              <option value="warn">경고만</option>
+              <option value="info">정보만</option>
+            </select>
+            <input id="log-query-filter" placeholder="내용 검색" aria-label="내용 검색" />
+            <label class="check-inline"><input id="log-routine" type="checkbox" /> 방송 상태 확인 기록 포함</label>
+          </form>
+          <div id="log-timeline" class="log-timeline"></div>
         </section>
 
         <section id="settings-panel" class="panel hidden">
@@ -269,6 +261,7 @@
               <p id="credential-help" class="settings-help">
                 새 값을 입력한 항목만 변경됩니다. 빈칸은 기존 값을 유지하며, 하단의 설정 저장 시 CHZZK 로그인 여부를 먼저 검증합니다.
               </p>
+              <div class="cookie-health"><span id="cookie-health-state" class="cookie-state unknown">확인 전</span><span id="cookie-health-detail"></span><button id="check-cookies" class="ghost-button" type="button">지금 확인</button></div>
               <div class="credential-grid">
                 <label>NID_AUT
                   <input id="nid-aut" type="text" autocomplete="off" spellcheck="false" placeholder="NID_AUT 입력" readonly />

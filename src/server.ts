@@ -7,14 +7,15 @@ import { pipeline } from "node:stream/promises";
 import type { ArchiveStore } from "./archive-store";
 import express, { type NextFunction, type Request, type Response } from "express";
 import session from "express-session";
-import { listArchive } from "./archive";
+import { archiveDays, listArchive } from "./archive";
 import { assertArchiveFile, assertPublicArchivePath, normalizeRelativePath, resolveExistingInside } from "./paths";
 import type { CrawlerManager } from "./crawler";
 import type { ChatIndex } from "./chat-index";
 import type { EmojiStore } from "./emoji-store";
+import type { CookieMonitor } from "./cookie-monitor";
 import { readPublicSettings, updateSettings } from "./settings";
 import { adminExists, createAdmin, verifyAdmin } from "./admin";
-import { analyzeLog, assertLogFile, listLogs, type OperationalLogger } from "./logs";
+import { analyzeLog, assertLogFile, listLogs, logTimeline, type OperationalLogger } from "./logs";
 
 declare module "express-session" {
   interface SessionData {
@@ -36,6 +37,7 @@ interface ServerOptions {
   logger: OperationalLogger;
   archiveStore?: ArchiveStore;
   emojiStore?: EmojiStore;
+  cookieMonitor?: CookieMonitor;
 }
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -187,6 +189,7 @@ export function createServer(options: ServerOptions) {
     try {
       const settings = await updateSettings(options.configDir, request.body);
       await options.crawler.reload();
+      void options.cookieMonitor?.check().catch(() => {});
       void options.logger.log("settings", "info", "settings_updated", "크롤러 설정을 저장하고 적용했습니다.", {
         username: request.session.username,
         streamerCount: settings.streamers.length,
@@ -199,9 +202,33 @@ export function createServer(options: ServerOptions) {
       next(error);
     }
   });
+  app.get("/api/cookie-status", requireAuth, (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    response.json(options.cookieMonitor?.snapshot() ?? { state: "unknown", message: "", checkedAt: null });
+  });
+  app.post("/api/cookie-status/check", requireAuth, requireCsrf, async (_request, response, next) => {
+    try {
+      if (!options.cookieMonitor) throw new Error("쿠키 확인 기능이 활성화되지 않았습니다.");
+      response.json(await options.cookieMonitor.check());
+    } catch (error) {
+      next(error);
+    }
+  });
   app.get("/api/files", requireAuth, async (request, response, next) => {
     try {
-      response.json(await listArchive(options.dataDir, request.query.path || "", options.archiveStore));
+      const day = (value: unknown) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+      const from = day(request.query.from);
+      const to = day(request.query.to);
+      const undated = request.query.undated === "1";
+      response.json(await listArchive(options.dataDir, request.query.path || "", options.archiveStore,
+        from || to || undated ? { from, to, undated } : undefined));
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.get("/api/files/days", requireAuth, async (request, response, next) => {
+    try {
+      response.json(await archiveDays(options.dataDir, request.query.path || ""));
     } catch (error) {
       next(error);
     }
@@ -350,6 +377,22 @@ export function createServer(options: ServerOptions) {
   app.get("/api/logs", requireAuth, async (request, response, next) => {
     try {
       response.json(await listLogs(options.logsDir, request.query.path || ""));
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.get("/api/logs/timeline", requireAuth, async (request, response, next) => {
+    try {
+      const text = (value: unknown) => typeof value === "string" && value ? value : undefined;
+      response.json(await logTimeline(options.logsDir, {
+        until: text(request.query.until),
+        days: Number.parseInt(String(request.query.days || "1"), 10) || 1,
+        category: text(request.query.category),
+        level: text(request.query.level),
+        query: text(request.query.q),
+        includeRoutine: request.query.routine === "1",
+        limit: 1000
+      }));
     } catch (error) {
       next(error);
     }

@@ -1,11 +1,14 @@
 const state = {
   csrf: "",
   currentPath: "",
-  currentLogPath: "",
+  streamers: [],
+  days: {},
+  undated: 0,
+  calendarMonth: "",
+  selectedDay: "",
+  recentFiles: [],
+  dayFiles: [],
   selectedFile: "",
-  selectedLogFile: "",
-  files: [],
-  openMonths: new Map(),
   messages: [],
   renderedMessages: 0,
   analysisRequest: 0,
@@ -73,8 +76,9 @@ function showApp(session) {
   $("#setup-view").classList.add("hidden");
   $("#login-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
-  loadFiles("");
+  loadFiles();
   loadStatus();
+  loadCookieHealth();
   state.statusTimer = setInterval(loadStatus, 15_000);
 }
 
@@ -107,23 +111,82 @@ async function loadStatus() {
   }
 }
 
-async function loadFiles(path = "") {
-  state.currentPath = path;
+function kstDayKey(date = new Date()) {
+  return dayKeyFormat.format(date);
+}
+
+function shiftDayKey(key, days) {
+  return new Date(Date.parse(`${key}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+}
+
+async function filesIn(query) {
+  return api(`/api/files?${new URLSearchParams({ path: state.currentPath, ...query })}`);
+}
+
+// Entry point for "채팅 기록 보기": streamers across the top, the last week as a list, older days through the calendar.
+const COOKIE_STATE_LABELS = { valid: "유효", expired: "만료", failed: "확인 실패", missing: "쿠키 없음", unknown: "확인 전" };
+
+function renderCookieHealth(health) {
+  $("#cookie-banner").classList.toggle("hidden", health.state !== "expired");
+  const badge = $("#cookie-health-state");
+  badge.className = `cookie-state ${health.state}`;
+  badge.textContent = COOKIE_STATE_LABELS[health.state] || health.state;
+  const parts = [];
+  if (health.nickname) parts.push(health.nickname);
+  if (health.message && health.state !== "valid") parts.push(health.message);
+  if (health.checkedAt) parts.push(`마지막 확인 ${new Date(health.checkedAt).toLocaleString("ko-KR")}`);
+  $("#cookie-health-detail").textContent = parts.join(" · ");
+}
+
+async function loadCookieHealth() {
   try {
-    state.files = await api(`/api/files?path=${encodeURIComponent(path)}`);
-    renderBreadcrumbs(path);
-    renderFiles();
+    renderCookieHealth(await api("/api/cookie-status"));
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadFiles(path = state.currentPath) {
+  try {
+    const root = await api("/api/files?path=");
+    state.streamers = root.filter((item) => item.type === "directory").map((item) => item.path);
+    if (root.some((item) => item.type === "file")) state.streamers.push("");
+    if (!state.streamers.includes(path)) path = state.streamers[0] ?? "";
+    if (path !== state.currentPath) state.selectedDay = "";
+    state.currentPath = path;
+    const today = kstDayKey();
+    const [calendar, recent] = await Promise.all([
+      api(`/api/files/days?path=${encodeURIComponent(path)}`),
+      filesIn({ from: shiftDayKey(today, -6), to: today })
+    ]);
+    state.days = calendar.days;
+    state.undated = calendar.undated;
+    state.recentFiles = recent;
+    const known = Object.keys(state.days).sort();
+    if (!state.calendarMonth) state.calendarMonth = (known.at(-1) || today).slice(0, 7);
+    if (state.selectedDay && state.selectedDay !== "undated" && !state.days[state.selectedDay]) state.selectedDay = "";
+    renderExplorer();
+    if (state.selectedDay) await selectDay(state.selectedDay);
   } catch (error) {
     toast(error.message);
   }
 }
 
+async function selectDay(day) {
+  state.selectedDay = day;
+  try {
+    state.dayFiles = day === "undated" ? await filesIn({ undated: "1" }) : await filesIn({ from: day, to: day });
+  } catch (error) {
+    state.dayFiles = [];
+    toast(error.message);
+  }
+  renderExplorer();
+}
+
 const KST = "Asia/Seoul";
-const monthKeyFormat = new Intl.DateTimeFormat("en-CA", { timeZone: KST, year: "numeric", month: "2-digit" });
-const monthLabelFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: KST, year: "numeric", month: "long" });
 const dayKeyFormat = new Intl.DateTimeFormat("en-CA", { timeZone: KST, year: "numeric", month: "2-digit", day: "2-digit" });
 const startLabelFormat = new Intl.DateTimeFormat("ko-KR", {
-  timeZone: KST, day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  timeZone: KST, month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
 });
 
 function fileKindLabel(item) {
@@ -132,75 +195,97 @@ function fileKindLabel(item) {
   return item.encoding === "gzip" ? "압축됨" : "원본";
 }
 
-function fileRow(item, dayStart) {
+function fileRow(item) {
   const started = item.startedAt ? new Date(item.startedAt) : null;
-  const title = item.type === "directory"
-    ? `<span class="folder-icon"></span> ${escapeHtml(item.name)}`
-    : started
-      ? `<span class="file-start">${escapeHtml(startLabelFormat.format(started))}</span>
-         <span class="kind-badge ${item.kind}">${item.kind === "live" ? "LIVE" : "OFF"}</span>
-         <small class="file-name">${escapeHtml(item.name)}</small>`
-      : escapeHtml(item.name);
+  const title = started
+    ? `<span class="file-start">${escapeHtml(startLabelFormat.format(started))}</span>
+       <span class="kind-badge ${item.kind}">${item.kind === "live" ? "LIVE" : "OFF"}</span>
+       <small class="file-name">${escapeHtml(item.name)}</small>`
+    : escapeHtml(item.name);
   return `
-    <tr class="${dayStart ? "day-start" : ""}">
-      <td><button class="file-button" data-open="${escapeHtml(item.path)}" data-type="${item.type}">${title}</button></td>
+    <tr>
+      <td><button class="file-button" data-open="${escapeHtml(item.path)}">${title}</button></td>
       <td>${fileKindLabel(item)}</td>
       <td>${item.size === null ? "—" : formatBytes(item.size)}</td>
       <td><div class="row-actions">
-        ${item.type === "file" ? `${item.encoding === "gzip" ? `<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=gzip">압축본</a>` : ""}<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=jsonl">JSONL</a>` : ""}
-        <button class="delete-archive" data-delete="${escapeHtml(item.path)}" data-delete-type="${item.type}">삭제</button>
+        ${item.encoding === "gzip" ? `<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=gzip">압축본</a>` : ""}<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=jsonl">JSONL</a>
+        <button class="delete-archive" data-delete="${escapeHtml(item.path)}">삭제</button>
       </div></td>
     </tr>`;
 }
 
-// Files arrive sorted by broadcast start (newest first). Group them by KST month;
-// the grouping is display-only and never changes archive paths.
-function renderFiles() {
-  const files = state.files;
-  $("#empty-files").classList.toggle("hidden", files.length !== 0);
-  const rows = files.filter((item) => item.type === "directory").map((item) => fileRow(item, false));
-  const groups = new Map();
-  for (const item of files.filter((entry) => entry.type !== "directory")) {
-    const key = item.startedAt ? monthKeyFormat.format(new Date(item.startedAt)) : "";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(item);
-  }
-  let first = true;
-  for (const [key, items] of groups) {
-    const stateKey = `${state.currentPath}\n${key}`;
-    if (!state.openMonths.has(stateKey)) state.openMonths.set(stateKey, first);
-    first = false;
-    const open = state.openMonths.get(stateKey);
-    const label = key ? monthLabelFormat.format(new Date(items[0].startedAt)) : "날짜 미상";
-    const bytes = items.reduce((sum, item) => sum + (item.size || 0), 0);
-    rows.push(`
-      <tr class="month-row">
-        <td colspan="4"><button data-month="${escapeHtml(key)}" aria-expanded="${open}">
-          <span class="month-caret"></span> ${escapeHtml(label)}
-          <small>${items.length.toLocaleString("ko-KR")}개 · ${formatBytes(bytes)}</small>
-        </button></td>
-      </tr>`);
-    if (!open) continue;
-    let previousDay = null;
-    for (const item of items) {
-      const day = item.startedAt ? dayKeyFormat.format(new Date(item.startedAt)) : "";
-      rows.push(fileRow(item, previousDay !== null && day !== previousDay));
-      previousDay = day;
-    }
-  }
-  $("#file-list").innerHTML = rows.join("");
+function fileTable(items, emptyText) {
+  return items.length
+    ? `<div class="table-wrap"><table class="file-table"><tbody>${items.map(fileRow).join("")}</tbody></table></div>`
+    : `<div class="empty compact">${escapeHtml(emptyText)}</div>`;
 }
 
-function renderBreadcrumbs(path) {
-  const parts = path ? path.split("/") : [];
-  let accumulated = "";
-  const crumbs = [{ name: "채팅 저장소", path: "" }, ...parts.map((part) => {
-    accumulated = accumulated ? `${accumulated}/${part}` : part;
-    return { name: part, path: accumulated };
-  })];
-  $("#breadcrumbs").innerHTML = crumbs.map((crumb) =>
-    `<button data-path="${escapeHtml(crumb.path)}">${escapeHtml(crumb.name)}</button>`
-  ).join("");
+function renderCalendar() {
+  const [year, month] = state.calendarMonth.split("-").map(Number);
+  const today = kstDayKey();
+  const years = new Set(Object.keys(state.days).map((day) => Number(day.slice(0, 4))));
+  years.add(year);
+  years.add(Number(today.slice(0, 4)));
+  const monthTotals = Array.from({ length: 12 }, () => 0);
+  for (const [day, count] of Object.entries(state.days)) {
+    if (Number(day.slice(0, 4)) === year) monthTotals[Number(day.slice(5, 7)) - 1] += count.live + count.off;
+  }
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells = Array.from({ length: firstWeekday }, () => `<span class="calendar-cell blank"></span>`);
+  for (let date = 1; date <= daysInMonth; date += 1) {
+    const key = `${state.calendarMonth}-${String(date).padStart(2, "0")}`;
+    const count = state.days[key];
+    const classes = ["calendar-cell", count ? "has-files" : "", key === today ? "today" : "", key === state.selectedDay ? "selected" : ""].join(" ");
+    cells.push(count
+      ? `<button type="button" class="${classes}" data-day="${key}" aria-pressed="${key === state.selectedDay}">
+           <span class="calendar-date">${date}</span>
+           <span class="calendar-marks">${count.live ? `<i class="mark live">LIVE${count.live > 1 ? ` ${count.live}` : ""}</i>` : ""}${count.off ? `<i class="mark off">OFF${count.off > 1 ? ` ${count.off}` : ""}</i>` : ""}</span>
+         </button>`
+      : `<span class="${classes}"><span class="calendar-date">${date}</span></span>`);
+  }
+  return `
+    <div class="calendar-toolbar">
+      <button type="button" class="ghost-button" data-calendar-step="-1" aria-label="이전 달">‹</button>
+      <strong>${year}년 ${month}월</strong>
+      <button type="button" class="ghost-button" data-calendar-step="1" aria-label="다음 달">›</button>
+      <select id="calendar-year" aria-label="연도">${[...years].sort((a, b) => b - a).map((value) => `<option value="${value}" ${value === year ? "selected" : ""}>${value}년</option>`).join("")}</select>
+    </div>
+    <div class="month-strip">${monthTotals.map((total, index) => `
+      <button type="button" data-calendar-month="${index + 1}" class="${index + 1 === month ? "active" : ""} ${total ? "" : "none"}">
+        ${index + 1}월${total ? `<small>${total}</small>` : ""}
+      </button>`).join("")}</div>
+    <div class="calendar-grid">
+      ${["일", "월", "화", "수", "목", "금", "토"].map((name) => `<span class="calendar-weekday">${name}</span>`).join("")}
+      ${cells.join("")}
+    </div>`;
+}
+
+function renderExplorer() {
+  $("#streamer-tabs").innerHTML = state.streamers.length > 1 ? state.streamers.map((path) =>
+    `<button type="button" data-streamer="${escapeHtml(path)}" class="${path === state.currentPath ? "active" : ""}">${escapeHtml(path || "기타")}</button>`
+  ).join("") : "";
+  $("#streamer-tabs").classList.toggle("hidden", state.streamers.length <= 1);
+  $("#explorer-streamer").textContent = state.streamers.length ? (state.currentPath || "기타") : "";
+  const hasAny = Object.keys(state.days).length > 0 || state.undated > 0;
+  $("#empty-files").classList.toggle("hidden", hasAny);
+  $("#explorer-body").classList.toggle("hidden", !hasAny);
+  if (!hasAny) return;
+  $("#recent-files").innerHTML = fileTable(state.recentFiles, "최근 7일 동안 기록된 방송이 없습니다.");
+  $("#recent-count").textContent = state.recentFiles.length ? `${state.recentFiles.length}개` : "";
+  $("#calendar").innerHTML = renderCalendar();
+  $("#undated-link").classList.toggle("hidden", !state.undated);
+  $("#undated-link").textContent = `날짜를 알 수 없는 파일 ${state.undated}개`;
+  const picked = $("#day-files");
+  if (!state.selectedDay) {
+    picked.innerHTML = `<div class="empty compact">달력에서 표시된 날짜를 누르면 그날의 방송이 여기에 나옵니다.</div>`;
+    $("#day-title").textContent = "선택한 날";
+  } else {
+    $("#day-title").textContent = state.selectedDay === "undated"
+      ? "날짜를 알 수 없는 파일"
+      : logDayFormat.format(new Date(`${state.selectedDay}T12:00:00+09:00`));
+    picked.innerHTML = fileTable(state.dayFiles, "이 날짜에는 방송 기록이 없습니다.");
+  }
 }
 
 function formatBytes(bytes) {
@@ -216,77 +301,99 @@ function selectTab(name) {
   $("#logs-panel").classList.toggle("hidden", name !== "logs");
   $("#settings-panel").classList.toggle("hidden", name !== "settings");
   if (name === "settings" && !state.settingsLoaded) loadSettings();
-  if (name === "logs") loadLogs(state.currentLogPath);
+  if (name === "logs") loadLogs();
+  if (name === "settings") loadCookieHealth();
 }
 
-async function loadLogs(path = "") {
-  state.currentLogPath = path;
-  try {
-    const files = await api(`/api/logs?path=${encodeURIComponent(path)}`);
-    renderLogBreadcrumbs(path);
-    $("#empty-logs").classList.toggle("hidden", files.length !== 0);
-    $("#log-file-list").innerHTML = files.map((item) => `
-      <tr>
-        <td><button class="file-button" data-log-open="${escapeHtml(item.path)}" data-type="${item.type}">
-          ${item.type === "directory" ? "▰" : "▤"}&nbsp; ${escapeHtml(item.name)}
-        </button></td>
-        <td>${item.type === "directory" ? "로그 항목" : item.name.endsWith(".gz") ? "압축 로그" : "일별 로그"}</td>
-        <td>${item.size === null ? "—" : formatBytes(item.size)}</td>
-        <td>${new Date(item.modifiedAt).toLocaleString("ko-KR")}</td>
-        <td><div class="row-actions">
-          ${item.type === "file" ? `<button data-log-analyze="${escapeHtml(item.path)}">분석</button><a href="/api/logs/download?path=${encodeURIComponent(item.path)}">다운로드</a>` : ""}
-        </div></td>
-      </tr>`).join("");
-  } catch (error) {
-    toast(error.message);
-  }
+const LOG_CATEGORY_LABELS = { crawler: "수집", system: "시스템", auth: "로그인", settings: "설정", files: "파일" };
+const LOG_LEVEL_LABELS = { info: "정보", warn: "경고", error: "오류" };
+const logDayFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: KST, month: "long", day: "numeric", weekday: "long" });
+const logState = { days: 1, category: "", request: 0 };
+
+// The few detail fields worth showing without opening the entry.
+function logContext(details) {
+  if (!details) return "";
+  const parts = [];
+  if (details.streamer) parts.push(details.streamer);
+  if (details.from && details.to) parts.push(`${details.from} → ${details.to}`);
+  if (details.username) parts.push(details.username);
+  if (details.error) parts.push(details.error);
+  return parts.join(" · ");
 }
 
-function renderLogBreadcrumbs(path) {
-  const parts = path ? path.split("/") : [];
-  let accumulated = "";
-  const crumbs = [{ name: "운영 로그", path: "" }, ...parts.map((part) => {
-    accumulated = accumulated ? `${accumulated}/${part}` : part;
-    return { name: part, path: accumulated };
-  })];
-  $("#log-breadcrumbs").innerHTML = crumbs.map((crumb) =>
-    `<button data-log-path="${escapeHtml(crumb.path)}">${escapeHtml(crumb.name)}</button>`
-  ).join("");
-}
-
-async function analyzeOperationalLog(file = state.selectedLogFile) {
-  if (!file) return;
-  state.selectedLogFile = file;
-  $("#selected-log-file").textContent = file;
-  $("#log-analysis").classList.remove("hidden");
+async function loadLogs() {
   const params = new URLSearchParams({
-    path: file,
+    days: String(logState.days),
+    category: logState.category,
     level: $("#log-level-filter").value,
     q: $("#log-query-filter").value,
-    limit: "200"
+    routine: $("#log-routine").checked ? "1" : "0"
   });
+  const request = ++logState.request;
   try {
-    const result = await api(`/api/logs/analysis?${params}`);
-    $("#log-metric-total").textContent = result.total.toLocaleString("ko-KR");
-    $("#log-metric-filtered").textContent = result.filtered.toLocaleString("ko-KR");
-    $("#log-metric-errors").textContent = (result.levels.error || 0).toLocaleString("ko-KR");
-    $("#log-event-list").innerHTML = result.events.length ? result.events.map((item) => `
-      <div class="user-row">
-        <button data-log-event="${escapeHtml(item.event)}">${escapeHtml(item.event)}</button>
-        <strong>${item.count.toLocaleString("ko-KR")}</strong>
-      </div>`).join("") : `<div class="empty">이벤트 정보가 없습니다.</div>`;
-    $("#log-record-list").innerHTML = result.records.length ? result.records.map((record) => `
-      <article class="message">
-        <div class="message-meta">
-          <strong class="log-level ${escapeHtml(record.level)}">${escapeHtml(record.level)}</strong>
-          <span>${new Date(record.timestamp).toLocaleString("ko-KR")}</span>
-        </div>
-        <p><strong>${escapeHtml(record.event)}</strong> · ${escapeHtml(record.message)}</p>
-        ${record.details ? `<div class="log-details">${escapeHtml(JSON.stringify(record.details, null, 2))}</div>` : ""}
-      </article>`).join("") : `<div class="empty">조건에 맞는 로그가 없습니다.</div>`;
-    if (result.invalidLines) toast(`읽을 수 없는 로그 ${result.invalidLines}개를 제외했습니다.`);
+    const result = await api(`/api/logs/timeline?${params}`);
+    if (request !== logState.request) return;
+    const number = (value) => value.toLocaleString("ko-KR");
+    $("#log-summary").innerHTML = `
+      <span class="log-stat stat-error ${result.levels.error ? "" : "zero"}">오류 ${number(result.levels.error)}</span>
+      <span class="log-stat stat-warn ${result.levels.warn ? "" : "zero"}">경고 ${number(result.levels.warn)}</span>
+      <span class="log-stat">기록 ${number(result.levels.info)}</span>
+      <span class="log-stat muted-stat">방송 상태 확인 ${number(Math.round(result.routine / 2))}회</span>`;
+    const timeline = $("#log-timeline");
+    timeline.replaceChildren();
+    if (!result.records.length) {
+      timeline.innerHTML = `<div class="empty">이 기간에 해당하는 기록이 없습니다.</div>`;
+      return;
+    }
+    let day = "";
+    const fragment = document.createDocumentFragment();
+    for (const record of result.records) {
+      const at = new Date(record.timestamp);
+      const label = logDayFormat.format(at);
+      if (label !== day) {
+        const divider = document.createElement("div");
+        divider.className = "day-divider";
+        divider.textContent = label;
+        fragment.append(divider);
+        day = label;
+      }
+      const entry = document.createElement("details");
+      entry.className = `log-entry level-${record.level}`;
+      const summary = document.createElement("summary");
+      const time = document.createElement("time");
+      time.textContent = messageTimeFormat.format(at);
+      const level = document.createElement("span");
+      level.className = "log-level-dot";
+      level.title = LOG_LEVEL_LABELS[record.level] || record.level;
+      const category = document.createElement("span");
+      category.className = "log-category";
+      category.textContent = LOG_CATEGORY_LABELS[record.category] || record.category;
+      const text = document.createElement("span");
+      text.className = "log-text";
+      text.textContent = record.message;
+      const context = logContext(record.details);
+      if (context) {
+        const extra = document.createElement("small");
+        extra.textContent = context;
+        text.append(" ", extra);
+      }
+      summary.append(time, level, category, text);
+      const detail = document.createElement("pre");
+      detail.className = "log-details";
+      detail.textContent = `${record.event}\n${record.details ? JSON.stringify(record.details, null, 2) : "상세 정보 없음"}`;
+      entry.append(summary, detail);
+      fragment.append(entry);
+    }
+    if (result.truncated) {
+      const note = document.createElement("div");
+      note.className = "empty";
+      note.textContent = `최근 ${number(result.records.length)}건만 표시했습니다. 기간을 줄이거나 검색어를 넣어 좁혀 보세요.`;
+      fragment.append(note);
+    }
+    timeline.append(fragment);
+    if (result.invalidLines) toast(`읽을 수 없는 로그 ${result.invalidLines}줄을 제외했습니다.`);
   } catch (error) {
-    toast(error.message);
+    if (request === logState.request) toast(error.message);
   }
 }
 
@@ -643,59 +750,76 @@ $("#logout-button").addEventListener("click", async () => {
   state.csrf = "";
   showLogin();
 });
-$("#file-list").addEventListener("click", (event) => {
+$("#explorer-panel").addEventListener("click", (event) => {
   const open = event.target.closest("[data-open]");
-  const analysis = event.target.closest("[data-analyze]");
-  const deletion = event.target.closest("[data-delete]");
-  if (open?.dataset.type === "directory") loadFiles(open.dataset.open);
-  if (open?.dataset.type === "file") analyze(open.dataset.open);
-  const month = event.target.closest("[data-month]");
-  if (month) {
-    const stateKey = `${state.currentPath}\n${month.dataset.month}`;
-    state.openMonths.set(stateKey, !state.openMonths.get(stateKey));
-    renderFiles();
+  if (open) return void analyze(open.dataset.open);
+  const streamer = event.target.closest("[data-streamer]");
+  if (streamer) {
+    state.calendarMonth = "";
+    return void loadFiles(streamer.dataset.streamer);
   }
-  if (analysis) analyze(analysis.dataset.analyze);
+  const day = event.target.closest("[data-day]");
+  if (day) return void selectDay(day.dataset.day);
+  if (event.target.closest("#undated-link")) return void selectDay("undated");
+  const step = event.target.closest("[data-calendar-step]");
+  const month = event.target.closest("[data-calendar-month]");
+  if (step || month) {
+    const [year, current] = state.calendarMonth.split("-").map(Number);
+    const target = month ? new Date(Date.UTC(year, Number(month.dataset.calendarMonth) - 1, 1))
+      : new Date(Date.UTC(year, current - 1 + Number(step.dataset.calendarStep), 1));
+    state.calendarMonth = target.toISOString().slice(0, 7);
+    return void renderExplorer();
+  }
+  const deletion = event.target.closest("[data-delete]");
   if (deletion) {
     const itemPath = deletion.dataset.delete;
     const name = itemPath.split("/").pop();
-    const kind = deletion.dataset.deleteType === "directory" ? "폴더" : "채팅 파일";
-    if (!window.confirm(`“${name}” ${kind}을(를) 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.`)) return;
+    if (!window.confirm(`“${name}” 채팅 파일을 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.`)) return;
     api(`/api/files?path=${encodeURIComponent(itemPath)}`, { method: "DELETE" })
       .then(() => {
         if (state.selectedFile === itemPath) state.selectedFile = "";
         toast(`${name} 삭제 완료`);
-        loadFiles(state.currentPath);
+        loadFiles();
       })
       .catch((error) => toast(error.message));
   }
 });
-$("#breadcrumbs").addEventListener("click", (event) => {
-  const crumb = event.target.closest("[data-path]");
-  if (crumb) loadFiles(crumb.dataset.path);
-});
-$("#log-file-list").addEventListener("click", (event) => {
-  const open = event.target.closest("[data-log-open]");
-  const analysis = event.target.closest("[data-log-analyze]");
-  if (open?.dataset.type === "directory") loadLogs(open.dataset.logOpen);
-  if (open?.dataset.type === "file") analyzeOperationalLog(open.dataset.logOpen);
-  if (analysis) analyzeOperationalLog(analysis.dataset.logAnalyze);
-});
-$("#log-breadcrumbs").addEventListener("click", (event) => {
-  const crumb = event.target.closest("[data-log-path]");
-  if (crumb) loadLogs(crumb.dataset.logPath);
-});
-$("#log-filter-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  analyzeOperationalLog();
-});
-$("#log-event-list").addEventListener("click", (event) => {
-  const selected = event.target.closest("[data-log-event]");
-  if (selected) {
-    $("#log-query-filter").value = selected.dataset.logEvent;
-    analyzeOperationalLog();
+$("#check-cookies").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const health = await api("/api/cookie-status/check", { method: "POST" });
+    renderCookieHealth(health);
+    toast(`쿠키 상태: ${COOKIE_STATE_LABELS[health.state] || health.state}`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
   }
 });
+$("#cookie-banner-open").addEventListener("click", () => selectTab("settings"));
+$("#explorer-panel").addEventListener("change", (event) => {
+  if (event.target.id !== "calendar-year") return;
+  state.calendarMonth = `${event.target.value}-${state.calendarMonth.slice(5)}`;
+  renderExplorer();
+});
+$("#log-period").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-days]");
+  if (!button) return;
+  logState.days = Number(button.dataset.days);
+  $$("#log-period button").forEach((item) => item.classList.toggle("active", item === button));
+  loadLogs();
+});
+$("#log-category").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-category]");
+  if (!button) return;
+  logState.category = button.dataset.category;
+  $$("#log-category button").forEach((item) => item.classList.toggle("active", item === button));
+  loadLogs();
+});
+$("#log-filter-form").addEventListener("submit", (event) => { event.preventDefault(); loadLogs(); });
+$("#log-level-filter").addEventListener("change", loadLogs);
+$("#log-routine").addEventListener("change", loadLogs);
 $("#filter-form").addEventListener("submit", (event) => { event.preventDefault(); analyze(); });
 $("#user-list").addEventListener("click", (event) => {
   const user = event.target.closest("[data-user]");
@@ -821,6 +945,7 @@ async function persistSettings(
     $("#settings-message").textContent = validationMessage || `마지막 적용: ${new Date().toLocaleTimeString("ko-KR")}`;
     toast(validationMessage || successMessage);
     await loadStatus();
+    setTimeout(loadCookieHealth, 1500);
     return true;
   } catch (error) {
     $("#settings-message").textContent = error.message;
@@ -892,7 +1017,7 @@ $("#off-chat-unlimited").addEventListener("change", (event) => {
   if (!event.target.checked) $("#off-chat-limit-minutes").focus();
 });
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => {
-  if (tab.dataset.tab === "analysis" && !state.selectedFile) toast("탐색기에서 분석할 파일을 선택하세요.");
+  if (tab.dataset.tab === "analysis" && !state.selectedFile) toast("채팅 기록 보기에서 방송을 선택하세요.");
   selectTab(tab.dataset.tab);
 }));
 

@@ -7,6 +7,7 @@ import { OperationalLogger } from "./logs";
 import { ChatIndex } from "./chat-index";
 import { ArchiveStore } from "./archive-store";
 import { EmojiStore } from "./emoji-store";
+import { CookieMonitor } from "./cookie-monitor";
 
 let activeLogger: OperationalLogger | null = null;
 let activeChatIndex: ChatIndex | null = null;
@@ -36,6 +37,7 @@ async function main() {
     networkEnabled: process.env.CRAWLER_DISABLED !== "1" && process.env.EMOJI_FETCH_DISABLED !== "1"
   });
   let emojiReady = false;
+  const cookieMonitor = new CookieMonitor(configDir, logger);
   let crawler: CrawlerManager | undefined;
   let server: ReturnType<ReturnType<typeof createServer>["listen"]> | undefined;
   let compressionRun: Promise<void> = Promise.resolve();
@@ -45,6 +47,7 @@ async function main() {
   cleanupRuntime = () => cleanupRun ??= (async () => {
     stopping = true;
     if (compressionTimer) clearInterval(compressionTimer);
+    cookieMonitor.stop();
     let failed = false;
     // Refuse new requests, let existing handlers finish before closing their DB.
     const httpClosed = server ? new Promise<void>(resolve => server!.close(() => resolve())) : Promise.resolve();
@@ -105,8 +108,11 @@ async function main() {
     chatIndex,
     logger,
     archiveStore,
-    emojiStore: emojiReady ? emojiStore : undefined
+    emojiStore: emojiReady ? emojiStore : undefined,
+    cookieMonitor
   });
+  // The isolated clone harness must not reach external hosts.
+  if (process.env.CRAWLER_DISABLED !== "1") cookieMonitor.start();
   if (emojiReady) {
     emojiStore.startSchedule(chatIndex, (error) => {
       void logger.log("system", error ? "warn" : "info", error ? "emoji_refresh_failed" : "emoji_refresh_completed",
