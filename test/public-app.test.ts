@@ -38,3 +38,29 @@ test("chat analysis loads the whole result and opens straight from the explorer"
   // Chat text and emoji must be inserted as DOM nodes, never as markup.
   assert.doesNotMatch(source, /message-list"\)\.innerHTML = result/);
 });
+
+test("cookie export files yield only the two login cookies for naver.com", () => {
+  const { parseCookieFile } = require(path.resolve(__dirname, "../../public/cookie-file.js")) as {
+    parseCookieFile(text: string): { NID_AUT: string; NID_SES: string; missing: string[]; expiresAt: string | null };
+  };
+  const netscape = [
+    "# Netscape HTTP Cookie File", "# https://curl.haxx.se/rfc/cookie_spec.html", "",
+    ".naver.com\tTRUE\t/\tFALSE\t1800000000\tNNB\tSYNTHETICNNB",
+    "#HttpOnly_.naver.com\tTRUE\t/\tTRUE\t1790000000\tNID_AUT\tsyntheticAut+/=",
+    "#HttpOnly_.naver.com\tTRUE\t/\tTRUE\t1795000000\tNID_SES\tsyntheticSes+/=",
+    ".example.com\tTRUE\t/\tTRUE\t1790000000\tNID_AUT\tfromAnotherSite",
+    "#HttpOnly_.evilnaver.com\tTRUE\t/\tTRUE\t1790000000\tNID_SES\tlookalike"
+  ].join("\r\n");
+  assert.deepEqual(parseCookieFile(netscape), {
+    NID_AUT: "syntheticAut+/=", NID_SES: "syntheticSes+/=", missing: [], expiresAt: new Date(1790000000 * 1000).toISOString()
+  });
+  const json = JSON.stringify([
+    { domain: ".naver.com", name: "NID_AUT", value: "jsonAut", expirationDate: 1790000000.5 },
+    { domain: "chzzk.naver.com", name: "NID_SES", value: "jsonSes" }
+  ]);
+  assert.equal(parseCookieFile(json).NID_SES, "jsonSes");
+  assert.deepEqual(parseCookieFile(json).missing, []);
+  assert.deepEqual(parseCookieFile(".naver.com\tTRUE\t/\tTRUE\t0\tNID_AUT\tonly").missing, ["NID_SES"]);
+  assert.deepEqual(parseCookieFile("not a cookie file").missing, ["NID_AUT", "NID_SES"]);
+  assert.equal(parseCookieFile(".naver.com\tTRUE\t/\tTRUE\t0\tNID_AUT\tbad value; x").NID_AUT, "");
+});

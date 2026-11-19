@@ -327,6 +327,9 @@ button.calendar-cell:hover { border-color: #4a545e; background: var(--surface-3)
 .cookie-state.valid { color: var(--accent); background: var(--accent-soft); }
 .cookie-state.expired { color: var(--danger); background: rgba(255,107,107,.14); }
 .cookie-state.failed { color: var(--warn); background: rgba(255,201,107,.14); }
+.cookie-import { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 20px 16px; color: var(--muted); font-size: 12px; }
+.cookie-import .ghost-button { flex: none; padding: 6px 12px; font-size: 13px; }
+.cookie-import span { flex: 1 1 260px; line-height: 1.5; }
 
 /* Settings */
 .settings-heading { align-items: flex-start; }

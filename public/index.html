@@ -7,6 +7,7 @@
     <meta name="description" content="CHZZK 방송 채팅을 수집하고 탐색하는 개인용 아카이브" />
     <title>CHZZK Chat Archive</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script src="/cookie-file.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -262,6 +263,7 @@
                 새 값을 입력한 항목만 변경됩니다. 빈칸은 기존 값을 유지하며, 하단의 설정 저장 시 CHZZK 로그인 여부를 먼저 검증합니다.
               </p>
               <div class="cookie-health"><span id="cookie-health-state" class="cookie-state unknown">확인 전</span><span id="cookie-health-detail"></span><button id="check-cookies" class="ghost-button" type="button">지금 확인</button></div>
+              <div class="cookie-import"><button id="import-cookies" class="ghost-button" type="button">쿠키 파일에서 가져오기</button><input id="cookie-file" type="file" accept=".txt,.json,text/plain,application/json" hidden /><span>브라우저 확장(Get cookies.txt 등)으로 chzzk.naver.com에서 내보낸 파일을 고르면 NID_AUT·NID_SES만 뽑아 채웁니다. 파일은 서버로 올라가지 않습니다.</span></div>
               <div class="credential-grid">
                 <label>NID_AUT
                   <input id="nid-aut" type="text" autocomplete="off" spellcheck="false" placeholder="NID_AUT 입력" readonly />

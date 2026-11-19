@@ -797,6 +797,32 @@ $("#check-cookies").addEventListener("click", async (event) => {
     button.disabled = false;
   }
 });
+$("#import-cookies").addEventListener("click", () => $("#cookie-file").click());
+$("#cookie-file").addEventListener("change", async (event) => {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  if (file.size > 1024 * 1024) { toast("쿠키 파일이 너무 큽니다(1MB 이하만 읽습니다)."); return; }
+  let result;
+  try {
+    result = window.parseCookieFile(await file.text());
+  } catch {
+    toast("쿠키 파일을 읽지 못했습니다.");
+    return;
+  }
+  if (result.missing.length) {
+    toast(`파일에서 ${result.missing.join(", ")} 값을 찾지 못했습니다. 네이버에 로그인한 상태로 chzzk.naver.com에서 내보냈는지 확인하세요.`);
+    return;
+  }
+  $("#clear-credentials").checked = false;
+  setCredentialsEditing(true);
+  $("#nid-aut").value = result.NID_AUT;
+  $("#nid-ses").value = result.NID_SES;
+  const expiry = result.expiresAt ? ` 파일에 적힌 만료일은 ${new Date(result.expiresAt).toLocaleDateString("ko-KR")}입니다.` : "";
+  $("#credential-help").textContent = `파일에서 두 값을 가져왔습니다.${expiry} 설정 저장 및 적용을 누르면 로그인 여부를 검증한 뒤 저장합니다.`;
+  toast("쿠키 값을 채웠습니다. 설정 저장 및 적용을 눌러 주세요.");
+});
 $("#cookie-banner-open").addEventListener("click", () => selectTab("settings"));
 $("#explorer-panel").addEventListener("change", (event) => {
   if (event.target.id !== "calendar-year") return;
