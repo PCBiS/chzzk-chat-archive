@@ -26,7 +26,7 @@
             <p>앞으로 로그인할 아이디와 안전한 비밀번호를 설정하세요.</p>
           </div>
           <label>관리자 아이디
-            <input name="username" autocomplete="username" minlength="3" maxlength="64" pattern="[A-Za-z0-9_.\-]+" placeholder="영문·숫자 3자 이상" required />
+            <input name="username" autocomplete="username" minlength="3" maxlength="64" pattern="[A-Za-z0-9_.@+\-]+" placeholder="영문·숫자 3자 이상 (이메일 형식 가능)" required />
           </label>
           <label>비밀번호
             <input name="password" type="password" autocomplete="new-password" minlength="6" maxlength="256" placeholder="6자 이상" required />
@@ -93,7 +93,7 @@
           <div id="empty-files" class="empty hidden">아직 저장된 채팅 기록이 없습니다.</div>
           <div id="explorer-body" class="explorer-body">
             <section class="explorer-section">
-              <div class="section-title"><h3>최근 7일</h3><span id="recent-count"></span></div>
+              <div class="section-title"><h3>최근 3일</h3><span id="recent-count"></span></div>
               <div id="recent-files"></div>
             </section>
             <section class="explorer-section explorer-older">
@@ -276,6 +276,27 @@
                 <input id="clear-credentials" type="checkbox" />
                 저장된 쿠키 값을 모두 삭제
               </label>
+            </section>
+
+            <section class="settings-section mcp-section">
+              <div class="settings-section-heading">
+                <div><h3>AI 연결 (MCP)</h3></div>
+                <span class="setting-scope">읽기 전용</span>
+              </div>
+              <p class="settings-help mcp-help">Claude 같은 AI 도구가 채팅 기록을 직접 조회하도록 접근 키를 발급합니다. 키로는 조회만 할 수 있고, 발급 직후 한 번만 표시됩니다.</p>
+              <div class="mcp-endpoint">주소 <code id="mcp-url"></code></div>
+              <div id="mcp-keys" class="mcp-keys"></div>
+              <div class="mcp-create">
+                <input id="mcp-key-name" maxlength="60" placeholder="키 이름 (예: Claude Code)" aria-label="키 이름" />
+                <button id="create-mcp-key" class="ghost-button" type="button">키 발급</button>
+              </div>
+              <div id="mcp-new-key" class="mcp-new-key hidden">
+                <strong>새 키가 발급되었습니다. 지금 복사해 두세요. 다시 볼 수 없습니다.</strong>
+                <code id="mcp-new-key-value"></code>
+                <p>Claude Code 등록 예시</p>
+                <code id="mcp-new-key-command"></code>
+                <div class="row-actions"><button id="copy-mcp-key" class="ghost-button" type="button">키 복사</button><button id="hide-mcp-key" class="ghost-button" type="button">닫기</button></div>
+              </div>
             </section>
 
             <div class="settings-actions">

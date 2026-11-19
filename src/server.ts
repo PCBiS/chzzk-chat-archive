@@ -13,6 +13,8 @@ import type { CrawlerManager } from "./crawler";
 import type { ChatIndex } from "./chat-index";
 import type { EmojiStore } from "./emoji-store";
 import type { CookieMonitor } from "./cookie-monitor";
+import type { McpKeyStore } from "./mcp-keys";
+import { createMcpRouter } from "./mcp";
 import { readPublicSettings, updateSettings } from "./settings";
 import { adminExists, createAdmin, verifyAdmin } from "./admin";
 import { analyzeLog, assertLogFile, listLogs, logTimeline, type OperationalLogger } from "./logs";
@@ -38,6 +40,8 @@ interface ServerOptions {
   archiveStore?: ArchiveStore;
   emojiStore?: EmojiStore;
   cookieMonitor?: CookieMonitor;
+  mcpKeys?: McpKeyStore;
+  version?: string;
 }
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -202,6 +206,33 @@ export function createServer(options: ServerOptions) {
       next(error);
     }
   });
+  if (options.mcpKeys) {
+    const keys = options.mcpKeys;
+    app.use("/mcp", createMcpRouter({
+      dataDir: options.dataDir, chatIndex: options.chatIndex, keys, logger: options.logger, version: options.version || "0.0.0"
+    }));
+    app.get("/api/mcp-keys", requireAuth, async (_request, response, next) => {
+      try {
+        response.setHeader("Cache-Control", "no-store");
+        response.json(await keys.list());
+      } catch (error) { next(error); }
+    });
+    app.post("/api/mcp-keys", requireAuth, requireCsrf, async (request, response, next) => {
+      try {
+        const created = await keys.create(request.body?.name);
+        void options.logger.log("settings", "warn", "mcp_key_created", "MCP 접근 키를 발급했습니다.", { username: request.session.username, name: created.name });
+        response.setHeader("Cache-Control", "no-store");
+        response.status(201).json(created);
+      } catch (error) { next(error); }
+    });
+    app.delete("/api/mcp-keys/:id", requireAuth, requireCsrf, async (request, response, next) => {
+      try {
+        if (!(await keys.revoke(request.params.id))) return response.status(404).json({ error: "키를 찾을 수 없습니다." });
+        void options.logger.log("settings", "warn", "mcp_key_revoked", "MCP 접근 키를 폐기했습니다.", { username: request.session.username });
+        response.status(204).end();
+      } catch (error) { next(error); }
+    });
+  }
   app.get("/api/cookie-status", requireAuth, (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
     response.json(options.cookieMonitor?.snapshot() ?? { state: "unknown", message: "", checkedAt: null });

@@ -8,6 +8,8 @@ import { ChatIndex } from "./chat-index";
 import { ArchiveStore } from "./archive-store";
 import { EmojiStore } from "./emoji-store";
 import { CookieMonitor } from "./cookie-monitor";
+import { McpKeyStore } from "./mcp-keys";
+import { readFileSync } from "node:fs";
 
 let activeLogger: OperationalLogger | null = null;
 let activeChatIndex: ChatIndex | null = null;
@@ -109,7 +111,9 @@ async function main() {
     logger,
     archiveStore,
     emojiStore: emojiReady ? emojiStore : undefined,
-    cookieMonitor
+    cookieMonitor,
+    mcpKeys: new McpKeyStore(configDir),
+    version: (() => { try { return String(JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version); } catch { return "0.0.0"; } })()
   });
   // The isolated clone harness must not reach external hosts.
   if (process.env.CRAWLER_DISABLED !== "1") cookieMonitor.start();

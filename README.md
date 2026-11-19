@@ -4,18 +4,19 @@
 
 이 프로젝트의 초기 프로토타입 설계, 구현 및 문서 작성에는 OpenAI Codex를 사용했습니다.
 
-버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.6.0 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.6.0).
+버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.7.0 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.7.0).
 
 ## 제공 기능
 
 - 스트리머별 채팅 수집
+- AI 도구가 채팅 기록을 직접 조회하는 읽기 전용 MCP 엔드포인트(`/mcp`)와 접근 키 관리
 - 방송 시작 시 `*_live.jsonl`, 방송 종료 후 `*_off.jsonl`로 분리
 - `NID_AUT`, `NID_SES`를 별도 JSON 파일로 관리
 - 로그인/로그아웃이 있는 웹 채팅 기록 보기
 - 채팅 저장 경로 아래로 제한된 목록 조회, 다운로드, 삭제
 - 사용자 ID 기준 중복 제거 참여자 현황
 - 닉네임/사용자 ID 및 메시지 내용 필터
-- 채팅 기록 보기: 최근 7일은 목록으로, 그 이전 방송은 달력에서 날짜를 골라 찾기(방송 시작 시각 기준, 압축 여부와 무관)
+- 채팅 기록 보기: 최근 3일은 목록으로, 그 이전 방송은 달력에서 날짜를 골라 찾기(방송 시작 시각 기준, 압축 여부와 무관)
 - 목록에서 방송을 누르면 바로 채팅 분석으로 이동
 - 선택한 방송의 채팅 전체를 한 번에 불러와 스크롤에 맞춰 표시
 - 채팅의 `{:이름:}` 이모티콘을 이미지로 표시. 이미지는 `data/.chzzk-emoji`에 저장하고 주 1회 누락·실패분을 보충
@@ -143,3 +144,28 @@ data/
 ## 현재 프로토타입의 한계
 
 - 방송 종료 시점에 프로세스가 꺼져 있으면 과거 방종 후 채팅을 복구하지 못할 수 있습니다.
+
+## AI 연결 (MCP)
+
+Claude 같은 AI 도구가 저장된 채팅을 직접 조회할 수 있도록 [Model Context Protocol](https://modelcontextprotocol.io) 엔드포인트를 제공합니다.
+
+1. **설정 → AI 연결 (MCP)** 에서 접근 키를 발급합니다. 키는 발급 직후 한 번만 표시되고, 서버에는 해시만 저장됩니다.
+2. AI 도구에 주소 `https://<호스트>/mcp` 와 헤더 `Authorization: Bearer <키>` 를 등록합니다. Claude Code 예시:
+
+   ```bash
+   claude mcp add --transport http chzzk-chat https://<호스트>/mcp --header "Authorization: Bearer <키>"
+   ```
+
+제공 도구는 모두 조회 전용입니다.
+
+| 도구 | 내용 |
+| --- | --- |
+| `list_broadcasts` | 기간·스트리머별 방송 기록 목록(제목, 채팅 수, 참여자 수) |
+| `chat_activity` | 시간대별 채팅량과 가장 활발했던 구간 |
+| `get_chat` | 한 기록의 채팅을 시간 구간·참여자·단어로 걸러 `[시각] 닉네임: 내용` 형식으로 읽기 |
+| `search_chat` | 여러 방송에 걸친 단어·닉네임 검색 |
+| `top_chatters` | 참여자 순위와 채팅·후원·구독 건수 |
+
+- 시각은 모두 한국 시간입니다. 사용자 ID 원문과 원본 `extras`는 내보내지 않습니다.
+- 키로는 설정 변경, 삭제, 다운로드를 할 수 없습니다. 쓰지 않는 키는 설정 화면에서 폐기하세요.
+- 조회한 채팅은 연결한 AI 서비스로 전송됩니다. 신뢰하는 도구에만 키를 주고, 엔드포인트는 내부망이나 인증된 프록시 뒤에 두세요.

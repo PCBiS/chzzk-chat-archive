@@ -330,6 +330,21 @@ button.calendar-cell:hover { border-color: #4a545e; background: var(--surface-3)
 .cookie-import { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 20px 16px; color: var(--muted); font-size: 12px; }
 .cookie-import .ghost-button { flex: none; padding: 6px 12px; font-size: 13px; }
 .cookie-import span { flex: 1 1 260px; line-height: 1.5; }
+.mcp-help { margin-top: 16px; }
+.mcp-endpoint { margin: 0 20px 14px; color: var(--muted); font-size: 12px; }
+.mcp-section code { padding: 2px 6px; border-radius: 5px; color: var(--text-2); background: var(--inset); font: 12px var(--mono); overflow-wrap: anywhere; user-select: all; }
+.mcp-keys { margin: 0 20px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.mcp-keys .settings-empty { padding: 18px; font-size: 13px; }
+.mcp-key { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); }
+.mcp-key:last-child { border-bottom: 0; }
+.mcp-key strong { font-size: 13px; }
+.mcp-key small { display: block; color: var(--muted); font-size: 11px; }
+.mcp-key .danger-button { padding: 5px 10px; font-size: 12px; }
+.mcp-create { display: grid; grid-template-columns: minmax(0, 320px) auto; justify-content: start; gap: 8px; margin: 12px 20px 20px; }
+.mcp-new-key { display: grid; gap: 8px; margin: 0 20px 20px; padding: 14px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent-soft); font-size: 13px; }
+.mcp-new-key p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.mcp-new-key code { display: block; padding: 8px 10px; }
+.mcp-new-key .row-actions { justify-content: flex-start; }
 
 /* Settings */
 .settings-heading { align-items: flex-start; }

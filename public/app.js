@@ -157,7 +157,7 @@ async function loadFiles(path = state.currentPath) {
     const today = kstDayKey();
     const [calendar, recent] = await Promise.all([
       api(`/api/files/days?path=${encodeURIComponent(path)}`),
-      filesIn({ from: shiftDayKey(today, -6), to: today })
+      filesIn({ from: shiftDayKey(today, -2), to: today })
     ]);
     state.days = calendar.days;
     state.undated = calendar.undated;
@@ -271,7 +271,7 @@ function renderExplorer() {
   $("#empty-files").classList.toggle("hidden", hasAny);
   $("#explorer-body").classList.toggle("hidden", !hasAny);
   if (!hasAny) return;
-  $("#recent-files").innerHTML = fileTable(state.recentFiles, "최근 7일 동안 기록된 방송이 없습니다.");
+  $("#recent-files").innerHTML = fileTable(state.recentFiles, "최근 3일 동안 기록된 방송이 없습니다.");
   $("#recent-count").textContent = state.recentFiles.length ? `${state.recentFiles.length}개` : "";
   $("#calendar").innerHTML = renderCalendar();
   $("#undated-link").classList.toggle("hidden", !state.undated);
@@ -302,7 +302,7 @@ function selectTab(name) {
   $("#settings-panel").classList.toggle("hidden", name !== "settings");
   if (name === "settings" && !state.settingsLoaded) loadSettings();
   if (name === "logs") loadLogs();
-  if (name === "settings") loadCookieHealth();
+  if (name === "settings") { loadCookieHealth(); loadMcpKeys(); }
 }
 
 const LOG_CATEGORY_LABELS = { crawler: "수집", system: "시스템", auth: "로그인", settings: "설정", files: "파일" };
@@ -795,6 +795,64 @@ $("#check-cookies").addEventListener("click", async (event) => {
     toast(error.message);
   } finally {
     button.disabled = false;
+  }
+});
+async function loadMcpKeys() {
+  $("#mcp-url").textContent = `${location.origin}/mcp`;
+  try {
+    const keys = await api("/api/mcp-keys");
+    $("#mcp-keys").innerHTML = keys.length ? keys.map((key) => `
+      <div class="mcp-key">
+        <div><strong>${escapeHtml(key.name)}</strong>
+          <small>발급 ${new Date(key.createdAt).toLocaleDateString("ko-KR")} · ${key.lastUsedAt ? `마지막 사용 ${new Date(key.lastUsedAt).toLocaleString("ko-KR")}` : "사용 기록 없음"}</small></div>
+        <button type="button" class="danger-button" data-revoke-key="${escapeHtml(key.id)}" data-key-name="${escapeHtml(key.name)}">폐기</button>
+      </div>`).join("") : `<div class="settings-empty">발급된 키가 없습니다.</div>`;
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+$("#create-mcp-key").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const name = $("#mcp-key-name").value.trim();
+  if (!name) { $("#mcp-key-name").focus(); toast("키 이름을 입력하세요."); return; }
+  button.disabled = true;
+  try {
+    const created = await api("/api/mcp-keys", { method: "POST", body: JSON.stringify({ name }) });
+    $("#mcp-key-name").value = "";
+    $("#mcp-new-key-value").textContent = created.key;
+    $("#mcp-new-key-command").textContent = `claude mcp add --transport http chzzk-chat ${location.origin}/mcp --header "Authorization: Bearer ${created.key}"`;
+    $("#mcp-new-key").classList.remove("hidden");
+    await loadMcpKeys();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+$("#copy-mcp-key").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("#mcp-new-key-value").textContent);
+    toast("키를 복사했습니다.");
+  } catch {
+    toast("복사하지 못했습니다. 키를 직접 선택해 복사하세요.");
+  }
+});
+$("#hide-mcp-key").addEventListener("click", () => {
+  $("#mcp-new-key-value").textContent = "";
+  $("#mcp-new-key-command").textContent = "";
+  $("#mcp-new-key").classList.add("hidden");
+});
+$("#mcp-keys").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-revoke-key]");
+  if (!button) return;
+  if (!window.confirm(`“${button.dataset.keyName}” 키를 폐기하시겠습니까? 이 키를 쓰는 연결은 바로 끊깁니다.`)) return;
+  try {
+    await api(`/api/mcp-keys/${encodeURIComponent(button.dataset.revokeKey)}`, { method: "DELETE" });
+    toast("키를 폐기했습니다.");
+    await loadMcpKeys();
+  } catch (error) {
+    toast(error.message);
   }
 });
 $("#import-cookies").addEventListener("click", () => $("#cookie-file").click());

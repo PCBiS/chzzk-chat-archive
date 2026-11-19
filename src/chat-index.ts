@@ -240,6 +240,91 @@ export class ChatIndex {
     };
   }
 
+  // ---- Read-only queries for the MCP tools. None of these decompress or re-index archives.
+
+  fileSummary(relativeInput: unknown) {
+    const relative = normalizeRelativePath(relativeInput);
+    const row = this.database.prepare(`
+      SELECT COUNT(*) AS messages, MIN(message_at) AS first_at, MAX(message_at) AS last_at,
+        COUNT(DISTINCT COALESCE(user_id, 'nickname:' || nickname_search)) AS participants
+      FROM messages WHERE file_path = ?
+    `).get(relative) as { messages: number | bigint; first_at: string | null; last_at: string | null; participants: number | bigint };
+    const sample = this.database.prepare("SELECT raw_json FROM messages WHERE file_path = ? ORDER BY id DESC LIMIT 1").get(relative) as RecordRow | undefined;
+    let title = "";
+    let sessionId = "";
+    if (sample) {
+      try {
+        const record = JSON.parse(sample.raw_json) as ArchiveRecord;
+        title = record.broadcast?.title || "";
+        sessionId = record.broadcast?.sessionId || "";
+      } catch { /* leave blank */ }
+    }
+    return { messages: Number(row.messages), firstAt: row.first_at, lastAt: row.last_at, participants: Number(row.participants), title, sessionId };
+  }
+
+  private messageFilter(files: string[], options: { from?: string; to?: string; user?: string; query?: string; events?: string[] }) {
+    const clauses = [`file_path IN (${files.map(() => "?").join(",")})`];
+    const parameters: Array<string | number> = [...files];
+    if (options.from) { clauses.push("message_at >= ?"); parameters.push(options.from); }
+    if (options.to) { clauses.push("message_at <= ?"); parameters.push(options.to); }
+    if (options.user?.trim()) {
+      clauses.push("(nickname_search LIKE ? ESCAPE '\\' OR user_id_search LIKE ? ESCAPE '\\')");
+      const pattern = likePattern(options.user);
+      parameters.push(pattern, pattern);
+    }
+    if (options.query?.trim()) {
+      clauses.push("message_search LIKE ? ESCAPE '\\'");
+      parameters.push(likePattern(options.query));
+    }
+    if (options.events?.length) {
+      clauses.push(`event IN (${options.events.map(() => "?").join(",")})`);
+      parameters.push(...options.events);
+    }
+    return { where: clauses.join(" AND "), parameters };
+  }
+
+  /** Messages from the given files in time order, with the total number matching. */
+  messages(
+    filesInput: string[],
+    options: { from?: string; to?: string; user?: string; query?: string; events?: string[]; offset: number; limit: number }
+  ) {
+    const files = filesInput.map((file) => normalizeRelativePath(file));
+    if (!files.length) return { total: 0, records: [] as Array<ArchiveRecord & { file: string }> };
+    const { where, parameters } = this.messageFilter(files, options);
+    const total = Number((this.database.prepare(`SELECT COUNT(*) AS count FROM messages WHERE ${where}`).get(...parameters) as unknown as CountRow).count);
+    const rows = this.database.prepare(`
+      SELECT file_path, raw_json FROM messages WHERE ${where} ORDER BY message_at ASC, id ASC LIMIT ? OFFSET ?
+    `).all(...parameters, options.limit, options.offset) as Array<{ file_path: string; raw_json: string }>;
+    return { total, records: rows.map((row) => ({ ...(JSON.parse(row.raw_json) as ArchiveRecord), file: row.file_path })) };
+  }
+
+  /** Message counts per UTC minute ("YYYY-MM-DDTHH:MM"). */
+  activity(relativeInput: unknown) {
+    const relative = normalizeRelativePath(relativeInput);
+    const rows = this.database.prepare(`
+      SELECT substr(message_at, 1, 16) AS minute, COUNT(*) AS count FROM messages WHERE file_path = ? GROUP BY minute ORDER BY minute
+    `).all(relative) as Array<{ minute: string; count: number | bigint }>;
+    return rows.map((row) => ({ minute: row.minute, count: Number(row.count) }));
+  }
+
+  chatters(relativeInput: unknown, limit: number) {
+    const relative = normalizeRelativePath(relativeInput);
+    const users = this.database.prepare(`
+      WITH grouped AS (
+        SELECT COALESCE(user_id, 'nickname:' || nickname_search) AS identity, COUNT(*) AS count, MAX(id) AS latest_id
+        FROM messages WHERE file_path = ? GROUP BY identity
+      )
+      SELECT m.user_id AS id, m.nickname, grouped.count FROM grouped JOIN messages m ON m.id = grouped.latest_id
+      ORDER BY grouped.count DESC, m.nickname COLLATE NOCASE ASC LIMIT ?
+    `).all(relative, limit) as unknown as UserRow[];
+    const events = this.database.prepare("SELECT event, COUNT(*) AS count FROM messages WHERE file_path = ? GROUP BY event")
+      .all(relative) as Array<{ event: string; count: number | bigint }>;
+    return {
+      users: users.map((user) => ({ id: user.id, nickname: user.nickname, count: Number(user.count) })),
+      events: Object.fromEntries(events.map((row) => [row.event, Number(row.count)]))
+    };
+  }
+
   private async syncFileNow(relative: string, rebuildCompressed = false) {
     const resolved = this.archiveStore && relative.endsWith(".jsonl") ? await this.archiveStore.resolve(relative) : null;
     const absolute = resolved?.physicalPath || await resolveExistingInside(this.dataDir, relative);

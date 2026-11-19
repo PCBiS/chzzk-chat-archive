@@ -19,8 +19,8 @@ function adminPath(configDir: string) {
 
 function validateUsername(value: unknown) {
   const username = typeof value === "string" ? value.trim() : "";
-  if (!/^[A-Za-z0-9_.-]{3,64}$/.test(username)) {
-    throw new Error("아이디는 영문, 숫자, _, -, . 조합으로 3~64자여야 합니다.");
+  if (!/^[A-Za-z0-9_.@+-]{3,64}$/.test(username)) {
+    throw new Error("아이디는 영문, 숫자, _, -, ., @, + 조합으로 3~64자여야 합니다.");
   }
   return username;
 }

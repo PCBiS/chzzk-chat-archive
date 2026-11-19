@@ -29,7 +29,7 @@ export function parseArchiveName(name: string): { startedAt: string; kind: "live
 
 const KST_OFFSET = 9 * 60 * 60_000;
 
-function kstDay(iso: string) {
+export function kstDay(iso: string) {
   return new Date(Date.parse(iso) + KST_OFFSET).toISOString().slice(0, 10);
 }
 
