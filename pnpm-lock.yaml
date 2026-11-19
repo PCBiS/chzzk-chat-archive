@@ -374,8 +374,8 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
-  ws@8.21.1:
-    resolution: {integrity: sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==}
+  ws@8.23.0:
+    resolution: {integrity: sha512-wCkmX8QMOrKjgO8HW2WyDbTSGeqkocxgDzS9iR79rEAexty6/2qzilx3Ag8Tqf9ykop3irLKle0MtVn5qjVnoQ==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -471,8 +471,8 @@ snapshots:
 
   chzzk@1.10.4:
     dependencies:
-      isomorphic-ws: 5.0.0(ws@8.21.1)
-      ws: 8.21.1
+      isomorphic-ws: 5.0.0(ws@8.23.0)
+      ws: 8.23.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -636,9 +636,9 @@ snapshots:
 
   ipaddr.js@1.9.1: {}
 
-  isomorphic-ws@5.0.0(ws@8.21.1):
+  isomorphic-ws@5.0.0(ws@8.23.0):
     dependencies:
-      ws: 8.21.1
+      ws: 8.23.0
 
   math-intrinsics@1.1.0: {}
 
@@ -781,4 +781,4 @@ snapshots:
 
   vary@1.1.2: {}
 
-  ws@8.21.1: {}
+  ws@8.23.0: {}
