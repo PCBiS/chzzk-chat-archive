@@ -6,6 +6,8 @@ test("archive timestamp is formatted in Korean local time", () => {
   assert.equal(formatArchiveTimestamp("2026-07-30T08:07:54+09:00"), "260730_08h07m54s");
   assert.equal(formatArchiveTimestamp("2026-07-29T23:07:54Z"), "260730_08h07m54s");
   assert.equal(formatArchiveTimestamp("2026-07-30T08:07:54"), "260730_08h07m54s");
+  // CHZZK live-detail openDate uses a space separator without an offset.
+  assert.equal(formatArchiveTimestamp("2026-07-30 08:07:54"), "260730_08h07m54s");
 });
 
 test("live archive is stored directly below the streamer directory", () => {

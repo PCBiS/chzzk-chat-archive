@@ -155,6 +155,31 @@ export class ChatIndex {
     }
   }
 
+  /** Move every indexed row of one archive to a new path; a no-op when nothing is indexed under the old path. */
+  renameFile(fromInput: unknown, toInput: unknown) {
+    const from = normalizeRelativePath(fromInput);
+    const to = normalizeRelativePath(toInput);
+    assertArchiveFile(from);
+    assertArchiveFile(to);
+    const count = (sql: string, value: string) => Number((this.database.prepare(sql).get(value) as { n: number | bigint }).n);
+    if (!count("SELECT count(*) AS n FROM indexed_files WHERE file_path = ?", from)
+      && !count("SELECT count(*) AS n FROM messages WHERE file_path = ?", from)) return;
+    if (count("SELECT count(*) AS n FROM indexed_files WHERE file_path = ?", to)
+      || count("SELECT count(*) AS n FROM messages WHERE file_path = ?", to)) throw new Error("chat_index_rename_target_exists");
+    this.database.function("archive_record_key", { deterministic: true }, (relative, raw) =>
+      createHash("sha256").update(String(relative)).update("\0").update(String(raw)).digest("hex"));
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      // Record keys include the path (see addRecord), so they move with it.
+      this.database.prepare("UPDATE messages SET file_path = ?, record_key = archive_record_key(?, raw_json) WHERE file_path = ?").run(to, to, from);
+      this.database.prepare("UPDATE indexed_files SET file_path = ? WHERE file_path = ?").run(to, from);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   removeFile(relativeInput: unknown) {
     const relative = normalizeRelativePath(relativeInput);
     this.database.exec("BEGIN");

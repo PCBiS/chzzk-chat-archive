@@ -114,6 +114,50 @@ export class ArchiveStore {
       .run(value.id, JSON.stringify(value));
   }
 
+  /**
+   * Move one archive to a new logical path: `beforeMove` (e.g. the search index)
+   * runs first, then the lifecycle row, then the physical file (plain or gzip).
+   * Every step is a no-op when already done, so an interrupted move completes on
+   * the next call. The target must not exist; nothing is ever overwritten.
+   */
+  async renameArchive(fromInput: string, toInput: string, beforeMove?: () => void) {
+    const from = this.logical(fromInput);
+    const to = this.logical(toInput);
+    if (from === to || path.posix.dirname(from) !== path.posix.dirname(to)) throw new Error("Invalid archive rename");
+    await this.withFile(from, () => this.withFile(to, async () => {
+      const plain = await this.exists(from);
+      const gzip = await this.exists(`${from}.gz`);
+      if ((plain ? 1 : 0) + (gzip ? 1 : 0) !== 1) throw new Error("archive_rename_source_ambiguous");
+      const existing = await this.exists(plain ? to : `${to}.gz`);
+      if (existing && !this.getState(from) && (await stat(existing)).ino === (await stat(plain || gzip!)).ino) {
+        // An earlier move stopped after linking the new name: drop the old name only.
+        await unlink(plain || gzip!);
+        await this.syncDirectory(existing);
+        return;
+      }
+      if (existing || await this.exists(plain ? `${to}.gz` : to)) throw new Error("archive_rename_target_exists");
+      const state = this.getState(from);
+      const target = this.getState(to);
+      if (state && target) throw new Error("archive_rename_state_conflict");
+      if (state && !["ACTIVE", "CLOSED", "COMPRESSED"].includes(state.state)) throw new Error("archive_rename_state_busy");
+      if (state?.state === "COMPRESSED" ? !gzip : state && !plain) throw new Error("archive_rename_state_mismatch");
+      beforeMove?.();
+      if (state) {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+          this.database.prepare("DELETE FROM archives WHERE id=?").run(from);
+          this.save({ ...state, id: to });
+          this.database.exec("COMMIT");
+        } catch (error) { this.database.exec("ROLLBACK"); throw error; }
+      }
+      const source = plain || gzip!;
+      const destination = path.join(path.dirname(source), path.posix.basename(to) + (plain ? "" : ".gz"));
+      await link(source, destination); // Fails instead of replacing an existing file.
+      await unlink(source);
+      await this.syncDirectory(destination);
+    }));
+  }
+
   async withFile<T>(input: string, fn: () => Promise<T>): Promise<T> {
     const id = this.logical(input);
     const previous = this.chains.get(id) || Promise.resolve();
@@ -223,7 +267,9 @@ export class ArchiveStore {
         const source = await this.exists(id);
         if (!source || await this.exists(`${id}.gz`)) return;
         const before = await this.generation(source);
-        if (!before.size || before.mtimeMs > observedAt) return;
+        // observedAt has millisecond precision; compare at the same precision so a
+        // write finished within the same millisecond is not mistaken for a later one.
+        if (!before.size || Math.floor(before.mtimeMs) > observedAt) return;
         // Require a newline-terminated file: a partial final append is never sealed.
         const handle = await open(source, "r");
         try {

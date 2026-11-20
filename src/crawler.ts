@@ -6,7 +6,7 @@ import { safeSegment } from "./paths";
 import { readRawSettings } from "./settings";
 import type { OperationalLogger } from "./logs";
 import type { ChatIndex } from "./chat-index";
-import type { ArchiveStore } from "./archive-store";
+import { parseBroadcastTimestamp, type ArchiveStore } from "./archive-store";
 import type { ArchiveKind, ArchiveRecord, StreamerConfig, WorkerSnapshot } from "./types";
 
 interface Credentials {
@@ -23,6 +23,7 @@ interface LiveStatus {
 interface LiveDetail extends LiveStatus {
   liveId?: number;
   openDate?: string;
+  closeDate?: string | null;
 }
 
 interface ChatEvent {
@@ -50,11 +51,13 @@ function archiveDate(value: string | Date): Date {
     return Number.isNaN(value.valueOf()) ? new Date() : value;
   }
 
-  // CHZZK may return a local ISO timestamp without an explicit offset.
-  // Treat that form as Korean local time instead of the container's timezone.
-  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
-    ? `${value}+09:00`
-    : value;
+  // CHZZK returns local timestamps without an offset, either as
+  // "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DDTHH:MM:SS". Treat both as Korean
+  // local time instead of the container's timezone.
+  const local = value.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/, "$1T$2");
+  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(local)
+    ? `${local}+09:00`
+    : local;
   const parsed = new Date(normalized);
   return Number.isNaN(parsed.valueOf()) ? new Date() : parsed;
 }
@@ -98,6 +101,9 @@ export class StreamerWorker {
   private title = "";
   private currentFile: string | null = null;
   private offStartedAt = 0;
+  // Collection state lives in memory. After a restart or settings reload the
+  // first CLOSE observation decides whether to resume off-air collection.
+  private resumeChecked = false;
   private dedupe = new Map<string, number>();
   private snapshot: WorkerSnapshot;
   private writeQueue: Promise<void> = Promise.resolve();
@@ -227,6 +233,7 @@ export class StreamerWorker {
   }
 
   private async handleOpen(status: LiveStatus) {
+    this.resumeChecked = true;
     const detail = (await this.client.live.detail(this.config.channelId)) as LiveDetail | null;
     const openedAt = detail?.openDate || new Date().toISOString();
     const sessionId = String(detail?.liveId || status.chatChannelId || Date.parse(openedAt));
@@ -277,6 +284,9 @@ export class StreamerWorker {
   }
 
   private async handleClose(status: LiveStatus) {
+    if (this.kind === null && !this.resumeChecked) {
+      await this.resumeOffCollection(status);
+    }
     if (this.kind === "live" && this.sessionId) {
       const offStartedAt = new Date();
       this.kind = "off";
@@ -308,6 +318,54 @@ export class StreamerWorker {
     if (this.kind === "off" && !this.chat?.connected && status.chatChannelId) {
       await this.connect();
     }
+  }
+
+  /**
+   * Resume off-air collection when the worker starts while the broadcast is
+   * already closed. Identity comes from the official last broadcast first and
+   * the newest still-active archive second; without either, nothing is resumed.
+   */
+  private async resumeOffCollection(status: LiveStatus) {
+    if (!status.chatChannelId) {
+      this.resumeChecked = true;
+      return;
+    }
+    const detail = (await this.client.live.detail(this.config.channelId)) as LiveDetail | null;
+    // The status endpoint and detail can briefly disagree around a transition.
+    if (detail?.status === "OPEN") return;
+    this.resumeChecked = true;
+    let identity: { sessionId: string; openedAt: string; title: string; source: string } | null = null;
+    let offStartedAt = NaN;
+    const officialOpenedAt = parseBroadcastTimestamp(detail?.openDate);
+    if (typeof detail?.liveId === "number" && Number.isSafeInteger(detail.liveId) && detail.liveId > 0
+      && Number.isFinite(officialOpenedAt) && officialOpenedAt <= Date.now()) {
+      identity = { sessionId: String(detail.liveId), openedAt: detail.openDate!, title: detail.liveTitle || "", source: "live_detail" };
+      offStartedAt = parseBroadcastTimestamp(detail.closeDate || undefined);
+    } else if (this.archiveStore) {
+      const latest = this.archiveStore.listStates()
+        .filter(state => state.state === "ACTIVE" && state.channelId === this.config.channelId && state.sessionId && state.openedAt)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (latest) identity = { sessionId: latest.sessionId!, openedAt: latest.openedAt!, title: "", source: "active_archive" };
+    }
+    if (!identity) return;
+    if (this.offChatLimitMs !== null) {
+      // A limited off window needs a known closing time to stay honest.
+      if (!Number.isFinite(offStartedAt) || Date.now() - offStartedAt > this.offChatLimitMs) return;
+    }
+    const resumedAt = new Date();
+    this.kind = "off";
+    this.sessionId = identity.sessionId;
+    this.openedAt = identity.openedAt;
+    this.title = identity.title;
+    this.offStartedAt = Number.isFinite(offStartedAt) ? offStartedAt : resumedAt.valueOf();
+    this.setFile("off", resumedAt);
+    void this.logger.log("crawler", "info", "off_archive_resumed", "재시작 뒤 방종 후 채팅 파일 기록을 이어서 시작했습니다.", {
+      channelId: this.config.channelId,
+      streamer: this.config.name,
+      sessionId: this.sessionId,
+      source: identity.source,
+      file: this.snapshot.file
+    });
   }
 
   private async connect() {

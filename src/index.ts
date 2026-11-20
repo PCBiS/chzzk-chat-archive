@@ -7,6 +7,7 @@ import { OperationalLogger } from "./logs";
 import { ChatIndex } from "./chat-index";
 import { ArchiveStore } from "./archive-store";
 import { EmojiStore } from "./emoji-store";
+import { correctLiveArchiveNames } from "./archive-rename";
 import { CookieMonitor } from "./cookie-monitor";
 import { McpKeyStore } from "./mcp-keys";
 import { readFileSync } from "node:fs";
@@ -74,6 +75,15 @@ async function main() {
     chatIndex.recordObserver = (record) => emojiStore.observe(record.extras);
   } catch {
     await logger.log("system", "warn", "emoji_store_unavailable", "이모티콘 저장소를 열지 못해 이모티콘을 텍스트로 표시합니다.");
+  }
+  // Must run before syncAll and the crawler so no file is open under its old name.
+  try {
+    const names = await correctLiveArchiveNames(dataDir, archiveStore, chatIndex);
+    if (names.renamed || names.failed) {
+      await logger.log("system", names.failed ? "warn" : "info", "archive_names_corrected", "라이브 파일 이름의 시각을 한국 시각으로 정정했습니다.", names);
+    }
+  } catch {
+    await logger.log("system", "warn", "archive_names_correction_failed", "라이브 파일 이름 정정을 건너뛰었습니다.");
   }
   await chatIndex.syncAll();
   await logger.log("system", "info", "chat_index_ready", "SQLite 채팅 검색 인덱스를 준비했습니다.");

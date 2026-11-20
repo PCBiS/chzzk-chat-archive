@@ -4,7 +4,7 @@
 
 이 프로젝트의 초기 프로토타입 설계, 구현 및 문서 작성에는 OpenAI Codex를 사용했습니다.
 
-버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.7.0 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.7.0).
+버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.7.1 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.7.1).
 
 ## 제공 기능
 
@@ -107,7 +107,7 @@ data/
     └── 260730_17h23m31s_스트리머명_off.jsonl
 ```
 
-파일 시각은 한국 표준시(`Asia/Seoul`) 기준입니다. 방송 종료를 감지하면 라이브 파일을 닫고, 감지 시각으로 이름을 만든 `*_off.jsonl`에 방종 후 채팅을 이어서 기록합니다. 기존 구조로 저장된 파일은 자동 이동하지 않으며 새 수집 파일부터 위 구조가 적용됩니다.
+파일 시각은 한국 표준시(`Asia/Seoul`) 기준입니다. 방송 종료를 감지하면 라이브 파일을 닫고, 감지 시각으로 이름을 만든 `*_off.jsonl`에 방종 후 채팅을 이어서 기록합니다. 방종 후 수집 중에 앱이 재시작되면 직전 방송 정보로 새 `*_off.jsonl`을 만들어 수집을 이어 갑니다(파일 이름은 재개 시각). 0.7.1 이전에는 UTC로 동작하는 서버에서 라이브 파일 이름이 방송 시작보다 9시간 늦게 붙었습니다. 0.7.1은 처음 시작할 때 이런 파일(압축본 포함)의 이름을 기록 안의 방송 시작 시각으로 고치고, 압축 상태와 검색 DB의 경로도 함께 옮깁니다. 기존 구조로 저장된 파일은 자동 이동하지 않으며 새 수집 파일부터 위 구조가 적용됩니다.
 
 각 줄은 독립적인 JSON 객체입니다. 주요 필드는 `messageAt`, `streamer`, `broadcast`, `event`, `user`, `message`입니다.
 
@@ -143,7 +143,7 @@ data/
 
 ## 현재 프로토타입의 한계
 
-- 방송 종료 시점에 프로세스가 꺼져 있으면 과거 방종 후 채팅을 복구하지 못할 수 있습니다.
+- 프로세스가 꺼져 있던 동안의 채팅은 복구할 수 없습니다. 다시 켜지면 연결 직후 최근 채팅 50개만 받습니다.
 
 ## AI 연결 (MCP)
 
