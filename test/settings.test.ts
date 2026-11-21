@@ -20,7 +20,8 @@ test("persists global scan intervals and an unlimited off-chat duration", async 
   const crawler = {
     statusPollSeconds: 90,
     scanStaggerSeconds: 20,
-    offChatLimitMinutes: null
+    offChatLimitMinutes: null,
+    webDeleteEnabled: false
   };
   const result = await updateSettings(root, { streamers: [], crawler });
   assert.deepEqual(result.crawler, crawler);
@@ -180,4 +181,12 @@ test("cookie monitor separates expired cookies from failed checks and logs trans
   assert.ok(valid.checkedAt);
   assert.deepEqual(events, ["cookie_check_failed", "cookie_expired", "cookie_recovered"]);
   assert.doesNotMatch(JSON.stringify(monitor.snapshot()), /synthetic-(aut|ses)/);
+});
+
+test("web deletion defaults to on for existing settings and must be a boolean", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "chzzk-settings-"));
+  const legacy = { statusPollSeconds: 60, scanStaggerSeconds: 20, offChatLimitMinutes: null };
+  const result = await updateSettings(root, { streamers: [], crawler: legacy });
+  assert.equal(result.crawler.webDeleteEnabled, true);
+  await assert.rejects(updateSettings(root, { streamers: [], crawler: { ...legacy, webDeleteEnabled: "false" } }), /웹 삭제/);
 });

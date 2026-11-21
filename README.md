@@ -4,7 +4,7 @@
 
 이 프로젝트의 초기 프로토타입 설계, 구현 및 문서 작성에는 OpenAI Codex를 사용했습니다.
 
-버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.7.1 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.7.1).
+버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.7.2 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.7.2).
 
 ## 제공 기능
 
@@ -118,6 +118,7 @@ data/
 - 방송 상태 확인 주기: 기본 60초
 - 스트리머 간 스캔 간격: 기본 20초. 상태 요청은 이 간격으로 한 명씩 순차 실행됩니다.
 - 방종 후 수집 제한: 기본 무제한이며 필요하면 분 단위 정수로 제한을 설정할 수 있습니다.
+- 웹에서 채팅 파일 삭제 허용: 기본 켜짐입니다. 끄면 채팅 기록 보기의 삭제 버튼이 사라지고 삭제 요청도 거부됩니다(`crawler.json`의 `webDeleteEnabled`).
 
 모든 분·초 입력값은 정수만 허용합니다. 상태 확인 주기를 60초 미만 또는 스트리머 간 간격을 20초 미만으로 설정하면 CHZZK의 IP 차단 위험 경고와 저장 확인창이 표시됩니다. 스트리머가 많으면 요청 간격을 지키기 위해 한 스트리머의 실제 재확인 주기가 설정값보다 길어질 수 있습니다.
 

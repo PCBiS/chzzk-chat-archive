@@ -444,6 +444,14 @@ button.calendar-cell:hover { border-color: #4a545e; background: var(--surface-3)
 .toggle-switch > input:checked + .toggle-track { border-color: var(--accent); background: rgba(0,226,150, .2); }
 .toggle-switch > input:checked + .toggle-track .toggle-thumb { transform: translateX(22px); background: var(--accent); box-shadow: 0 0 10px rgba(0,226,150,.55); }
 .toggle-switch > input:focus-visible + .toggle-track { outline: 3px solid rgba(0,226,150,.2); outline-offset: 2px; }
+.toggle-inline { margin: 16px 20px 0; min-height: 30px; font-size: 13px; }
+.toggle-inline.compact { margin: 0; white-space: nowrap; }
+.toggle-inline.compact .toggle-track { width: 40px; height: 22px; flex-basis: 40px; }
+.toggle-inline.compact .toggle-thumb { width: 14px; height: 14px; }
+.toggle-inline.compact > input:checked + .toggle-track .toggle-thumb { transform: translateX(18px); }
+.toggle-label { color: var(--text-2); line-height: 1.45; }
+.toggle-label small { display: block; color: var(--muted); font-size: 11px; }
+.toggle-switch > input:checked ~ .toggle-label { color: var(--text); }
 .toggle-text { min-width: 36px; color: var(--text-2); font-weight: 700; }
 .toggle-switch > input:checked ~ .toggle-text { color: var(--accent); }
 .check-label input { width: 16px; height: 16px; min-width: 16px; accent-color: var(--accent); }

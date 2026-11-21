@@ -168,7 +168,11 @@
               <option value="info">정보만</option>
             </select>
             <input id="log-query-filter" placeholder="내용 검색" aria-label="내용 검색" />
-            <label class="check-inline"><input id="log-routine" type="checkbox" /> 방송 상태 확인 기록 포함</label>
+            <label class="toggle-switch toggle-inline compact">
+                <input id="log-routine" type="checkbox" role="switch" />
+                <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">방송 상태 확인 기록 포함</span>
+              </label>
           </form>
           <div id="log-timeline" class="log-timeline"></div>
         </section>
@@ -215,9 +219,15 @@
                   <small>제한을 사용할 때 종료 감지 후 채팅을 유지할 시간 · 정수만 입력</small>
                 </label>
               </div>
-              <label class="check-label crawler-unlimited-control">
-                <input id="off-chat-unlimited" type="checkbox" checked />
-                방종 후 채팅을 시간 제한 없이 계속 수집
+              <label class="toggle-switch toggle-inline crawler-unlimited-control">
+                <input id="off-chat-unlimited" type="checkbox" role="switch" checked />
+                <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">방종 후 채팅을 시간 제한 없이 계속 수집</span>
+              </label>
+              <label class="toggle-switch toggle-inline crawler-unlimited-control">
+                <input id="web-delete-enabled" type="checkbox" role="switch" checked />
+                <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">웹에서 채팅 파일 삭제 허용 <small>끄면 채팅 기록 보기의 삭제 버튼이 사라지고 삭제 요청도 거부됩니다</small></span>
               </label>
               <p id="crawler-rate-warning" class="rate-warning hidden" role="alert"></p>
             </section>
@@ -272,9 +282,10 @@
                   <input id="nid-ses" type="text" autocomplete="off" spellcheck="false" placeholder="NID_SES 입력" readonly />
                 </label>
               </div>
-              <label id="clear-credentials-control" class="check-label">
-                <input id="clear-credentials" type="checkbox" />
-                저장된 쿠키 값을 모두 삭제
+              <label id="clear-credentials-control" class="toggle-switch toggle-inline">
+                <input id="clear-credentials" type="checkbox" role="switch" />
+                <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">저장된 쿠키 값을 모두 삭제</span>
               </label>
             </section>
 

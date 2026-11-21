@@ -6,7 +6,8 @@ import type { CrawlerConfig, StreamerConfig } from "./types";
 export const DEFAULT_CRAWLER_CONFIG: CrawlerConfig = {
   statusPollSeconds: 60,
   scanStaggerSeconds: 20,
-  offChatLimitMinutes: null
+  offChatLimitMinutes: null,
+  webDeleteEnabled: true
 };
 
 export interface Credentials {
@@ -156,6 +157,9 @@ export function validateCrawlerConfig(input: unknown): CrawlerConfig {
   const rawLimit = item.offChatLimitMinutes;
   const offChatLimitMinutes = rawLimit === null || rawLimit === undefined ? null : Number(rawLimit);
 
+  const webDeleteEnabled = item.webDeleteEnabled ?? DEFAULT_CRAWLER_CONFIG.webDeleteEnabled;
+  if (typeof webDeleteEnabled !== "boolean") throw new Error("웹 삭제 허용 값이 올바르지 않습니다.");
+
   if (!Number.isInteger(statusPollSeconds) || statusPollSeconds < 1 || statusPollSeconds > 86_400) {
     throw new Error("방송 상태 확인 주기는 1~86400초 사이의 정수여야 합니다.");
   }
@@ -171,7 +175,8 @@ export function validateCrawlerConfig(input: unknown): CrawlerConfig {
   return {
     statusPollSeconds,
     scanStaggerSeconds,
-    offChatLimitMinutes
+    offChatLimitMinutes,
+    webDeleteEnabled
   };
 }
 

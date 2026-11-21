@@ -139,3 +139,27 @@ test("aborting a gzip-to-JSONL download releases its archive lease", async t => 
   } finally { if (timeout) clearTimeout(timeout); }
   assert.equal((await f.store.resolve(id)).encoding, "gzip");
 });
+
+test("an unsealed archive nobody is writing can be deleted, and web deletion can be switched off", async t => {
+  const f = await fixture(t);
+  const headers = { cookie: f.cookie, "x-csrf-token": f.csrf };
+  const id = "unsealed.jsonl";
+  await f.store.registerActive(id, { channelId: "synthetic-channel", sessionId: "1", openedAt: "2026-07-30T00:00:00.000Z" });
+  await writeFile(path.join(f.directories.data, id), JSON.stringify(record("방종 후")) + "\n");
+  await f.index.syncFile(id);
+
+  const policy = await fetch(`${f.base}/api/files/policy`, { headers });
+  assert.deepEqual(await policy.json(), { deleteEnabled: true });
+  await writeFile(path.join(f.directories.config, "crawler.json"), JSON.stringify({ webDeleteEnabled: false }));
+  assert.deepEqual(await (await fetch(`${f.base}/api/files/policy`, { headers })).json(), { deleteEnabled: false });
+  const refused = await fetch(`${f.base}/api/files?path=${id}`, { method: "DELETE", headers });
+  assert.equal(refused.status, 403); await refused.arrayBuffer();
+  assert.equal(f.store.getState(id)?.state, "ACTIVE");
+
+  await writeFile(path.join(f.directories.config, "crawler.json"), JSON.stringify({ webDeleteEnabled: true }));
+  const deleted = await fetch(`${f.base}/api/files?path=${id}`, { method: "DELETE", headers });
+  assert.equal(deleted.status, 204);
+  assert.equal(f.store.getState(id)?.state, "DELETED");
+  assert.equal(fs.existsSync(path.join(f.directories.data, id)), false);
+  assert.equal((await fetch(`${f.base}/api/files/policy`)).status, 401);
+});

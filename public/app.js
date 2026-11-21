@@ -1,5 +1,6 @@
 const state = {
   csrf: "",
+  deleteEnabled: false,
   currentPath: "",
   streamers: [],
   days: {},
@@ -76,7 +77,7 @@ function showApp(session) {
   $("#setup-view").classList.add("hidden");
   $("#login-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
-  loadFiles();
+  loadFilePolicy().finally(loadFiles);
   loadStatus();
   loadCookieHealth();
   state.statusTimer = setInterval(loadStatus, 15_000);
@@ -87,6 +88,14 @@ function toast(message) {
   element.textContent = message;
   element.classList.remove("hidden");
   setTimeout(() => element.classList.add("hidden"), 3000);
+}
+
+async function loadFilePolicy() {
+  try {
+    state.deleteEnabled = (await api("/api/files/policy")).deleteEnabled === true;
+  } catch {
+    state.deleteEnabled = false;
+  }
 }
 
 async function loadStatus() {
@@ -209,7 +218,7 @@ function fileRow(item) {
       <td>${item.size === null ? "—" : formatBytes(item.size)}</td>
       <td><div class="row-actions">
         ${item.encoding === "gzip" ? `<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=gzip">압축본</a>` : ""}<a href="/api/files/download?path=${encodeURIComponent(item.path)}&format=jsonl">JSONL</a>
-        <button class="delete-archive" data-delete="${escapeHtml(item.path)}">삭제</button>
+        ${state.deleteEnabled ? `<button class="delete-archive" data-delete="${escapeHtml(item.path)}">삭제</button>` : ""}
       </div></td>
     </tr>`;
 }
@@ -496,6 +505,7 @@ function renderSettings(settings, { preserveCredentialInputs = false } = {}) {
   $("#scan-stagger-seconds").value = settings.crawler.scanStaggerSeconds;
   const unlimitedOffChat = settings.crawler.offChatLimitMinutes === null;
   $("#off-chat-unlimited").checked = unlimitedOffChat;
+  $("#web-delete-enabled").checked = settings.crawler.webDeleteEnabled !== false;
   $("#off-chat-limit-minutes").disabled = unlimitedOffChat;
   if (!unlimitedOffChat) {
     $("#off-chat-limit-minutes").value = settings.crawler.offChatLimitMinutes;
@@ -953,7 +963,8 @@ function collectCrawlerSettings() {
   return {
     statusPollSeconds: Number($("#status-poll-seconds").value),
     scanStaggerSeconds: Number($("#scan-stagger-seconds").value),
-    offChatLimitMinutes: unlimited ? null : Number($("#off-chat-limit-minutes").value)
+    offChatLimitMinutes: unlimited ? null : Number($("#off-chat-limit-minutes").value),
+    webDeleteEnabled: $("#web-delete-enabled").checked
   };
 }
 
@@ -1021,6 +1032,10 @@ async function persistSettings(
       })
     });
     renderSettings(settings, { preserveCredentialInputs: !includeCredentials });
+    if (state.deleteEnabled !== (settings.crawler.webDeleteEnabled !== false)) {
+      state.deleteEnabled = settings.crawler.webDeleteEnabled !== false;
+      loadFiles();
+    }
     $("#nid-aut").disabled = false;
     $("#nid-ses").disabled = false;
     const validationMessage = settings.credentialValidation

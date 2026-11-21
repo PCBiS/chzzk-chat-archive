@@ -485,9 +485,13 @@ export class ArchiveStore {
     await this.withFile(id, async () => {
       if (isActive?.()) throw new Error("현재 수집 중인 채팅 파일은 삭제할 수 없습니다.");
       const state = this.getState(id) || { id, state: "UNKNOWN", updatedAt: Date.now() };
-      if (!["UNKNOWN", "CLOSED", "COMPRESSED", "DELETED"].includes(state.state)) throw new Error("Archive must be safely closed before deletion");
+      // ACTIVE only means the broadcast cycle is not sealed yet (that happens when
+      // the next broadcast starts). Without an isActive check the caller cannot
+      // prove that no writer holds the file, so ACTIVE is refused in that case.
+      const deletable = ["UNKNOWN", "CLOSED", "COMPRESSED", "DELETED", ...(isActive ? ["ACTIVE"] : [])];
+      if (!deletable.includes(state.state)) throw new Error("처리 중인 채팅 파일이라 지금은 삭제할 수 없습니다. 잠시 뒤 다시 시도하세요.");
       if (state.state === "DELETED") return;
-      if (["UNKNOWN", "CLOSED"].includes(state.state) && await this.exists(`${id}.gz`)) throw new Error("Unexpected second representation; deletion refused");
+      if (["UNKNOWN", "CLOSED", "ACTIVE"].includes(state.state) && await this.exists(`${id}.gz`)) throw new Error("Unexpected second representation; deletion refused");
       this.save({ ...state, state: "DELETING" });
       await this.finishDelete(state);
     });

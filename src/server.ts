@@ -15,7 +15,7 @@ import type { EmojiStore } from "./emoji-store";
 import type { CookieMonitor } from "./cookie-monitor";
 import type { McpKeyStore } from "./mcp-keys";
 import { createMcpRouter } from "./mcp";
-import { readPublicSettings, updateSettings } from "./settings";
+import { readPublicSettings, readRawSettings, updateSettings } from "./settings";
 import { adminExists, createAdmin, verifyAdmin } from "./admin";
 import { analyzeLog, assertLogFile, listLogs, logTimeline, type OperationalLogger } from "./logs";
 
@@ -297,8 +297,19 @@ export function createServer(options: ServerOptions) {
     }
   });
 
+  app.get("/api/files/policy", requireAuth, async (_request, response, next) => {
+    try {
+      response.json({ deleteEnabled: (await readRawSettings(options.configDir)).crawler.webDeleteEnabled });
+    } catch (error) {
+      next(error);
+    }
+  });
   app.delete("/api/files", requireAuth, requireCsrf, async (request, response, next) => {
     try {
+      if (!(await readRawSettings(options.configDir)).crawler.webDeleteEnabled) {
+        response.status(403).json({ error: "웹 삭제 기능이 꺼져 있습니다. 설정에서 켠 뒤 다시 시도하세요." });
+        return;
+      }
       const relative = assertPublicArchivePath(request.query.path);
       if (!relative) throw new Error("채팅 저장소 루트는 삭제할 수 없습니다.");
       if (options.archiveStore && relative.endsWith(".jsonl")) {
@@ -306,6 +317,11 @@ export function createServer(options: ServerOptions) {
         if (active) throw new Error("현재 수집 중인 채팅 파일은 삭제할 수 없습니다.");
         await options.archiveStore.remove(relative, () => options.crawler.snapshots().some(worker => worker.file === relative));
         options.chatIndex.removeFile(relative);
+        void options.logger.log("files", "warn", "archive_deleted", "채팅 아카이브 항목을 삭제했습니다.", {
+          username: request.session.username,
+          path: relative,
+          type: "file"
+        });
         response.status(204).end();
         return;
       }

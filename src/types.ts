@@ -8,6 +8,8 @@ export interface CrawlerConfig {
   statusPollSeconds: number;
   scanStaggerSeconds: number;
   offChatLimitMinutes: number | null;
+  /** Allow deleting chat files from the web UI and API. */
+  webDeleteEnabled: boolean;
 }
 
 export type ArchiveKind = "live" | "off";

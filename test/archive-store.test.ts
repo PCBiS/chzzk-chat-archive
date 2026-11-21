@@ -71,6 +71,18 @@ test("manual legacy deletion checks current collector ownership under the same l
   assert.equal(await readFile(path.join(f.root,"legacy.jsonl"),"utf8"),content());
   await f.store.remove("legacy.jsonl",()=>false);assert.equal(f.store.getState("legacy.jsonl")?.state,"DELETED");
 });
+test("an unsealed active archive is deletable only when the caller proves no collector holds it",async t=>{
+  const f=await fixture(t);await f.put("open.jsonl");
+  await f.store.registerActive("open.jsonl",{channelId:"channel",sessionId:"1",openedAt:"2026-06-01T12:00:00"});
+  await assert.rejects(f.store.remove("open.jsonl"));
+  await assert.rejects(f.store.remove("open.jsonl",()=>true));
+  assert.equal(f.store.getState("open.jsonl")?.state,"ACTIVE");
+  await f.store.remove("open.jsonl",()=>false);
+  assert.equal(f.store.getState("open.jsonl")?.state,"DELETED");
+  await assert.rejects(readFile(path.join(f.root,"open.jsonl")),{code:"ENOENT"});
+  // A collector that later reaches the same name must not resurrect it.
+  await assert.rejects(f.store.registerActive("open.jsonl",{channelId:"channel",sessionId:"1"}));
+});
 test("failed compressed rebuild leaves the live index unchanged",async t=>{
   const f=await fixture(t);await f.put("old.jsonl");const index=await ChatIndex.open(f.root,f.store);
   t.after(()=>index.close());const expected=await index.analyze("old.jsonl",{offset:0,limit:200});
