@@ -4,7 +4,7 @@
 
 이 프로젝트의 초기 프로토타입 설계, 구현 및 문서 작성에는 OpenAI Codex를 사용했습니다.
 
-버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.7.2 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.7.2).
+버전별 변경 내역은 [GitHub Releases](https://github.com/PCBiS/chzzk-chat-archive/releases)에서 확인하세요. [0.7.3 릴리스 노트](https://github.com/PCBiS/chzzk-chat-archive/releases/tag/v0.7.3).
 
 ## 제공 기능
 

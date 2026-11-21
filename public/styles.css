@@ -330,7 +330,6 @@ button.calendar-cell:hover { border-color: #4a545e; background: var(--surface-3)
 .cookie-import { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 20px 16px; color: var(--muted); font-size: 12px; }
 .cookie-import .ghost-button { flex: none; padding: 6px 12px; font-size: 13px; }
 .cookie-import span { flex: 1 1 260px; line-height: 1.5; }
-.mcp-help { margin-top: 16px; }
 .mcp-endpoint { margin: 0 20px 14px; color: var(--muted); font-size: 12px; }
 .mcp-section code { padding: 2px 6px; border-radius: 5px; color: var(--text-2); background: var(--inset); font: 12px var(--mono); overflow-wrap: anywhere; user-select: all; }
 .mcp-keys { margin: 0 20px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
@@ -487,7 +486,8 @@ button.calendar-cell:hover { border-color: #4a545e; background: var(--surface-3)
 .danger-button:disabled { cursor: not-allowed; opacity: .4; }
 .settings-empty { padding: 44px 20px; color: var(--muted); text-align: center; }
 .credentials-section { padding-bottom: 20px; }
-.credentials-section .settings-section-heading { margin-bottom: 18px; }
+.credentials-section .settings-section-heading,
+.mcp-section .settings-section-heading { margin-bottom: 18px; }
 .credential-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 20px; }
 .credential-grid input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .credential-grid input[readonly] { cursor: default; color: var(--text-2); border-color: #242a27; background: var(--surface-2); }

@@ -1,6 +1,6 @@
 {
   "name": "chzzk-chat-archive",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "packageManager": "pnpm@11.28.8",
   "description": "CHZZK chat crawler, archive explorer, and chat analyzer",
